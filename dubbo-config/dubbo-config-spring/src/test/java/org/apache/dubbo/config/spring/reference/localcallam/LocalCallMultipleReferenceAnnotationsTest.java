@@ -23,6 +23,7 @@ import org.apache.dubbo.config.spring.ReferenceBean;
 import org.apache.dubbo.config.spring.api.HelloService;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
 import org.apache.dubbo.rpc.RpcContext;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
+import java.net.InetSocketAddress;
 import java.util.Map;
 
 import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD;
@@ -44,7 +46,7 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
 @PropertySource("classpath:/org/apache/dubbo/config/spring/reference/localcallam/local-call-config.properties")
 @ContextConfiguration(classes = {LocalCallMultipleReferenceAnnotationsTest.class, LocalCallMultipleReferenceAnnotationsTest.LocalCallConfiguration.class})
 @DirtiesContext(classMode = AFTER_EACH_TEST_METHOD)
-public class LocalCallMultipleReferenceAnnotationsTest {
+class LocalCallMultipleReferenceAnnotationsTest {
 
     @BeforeAll
     public static void setUp() {
@@ -61,14 +63,14 @@ public class LocalCallMultipleReferenceAnnotationsTest {
     private ApplicationContext applicationContext;
 
     @Test
-    public void testLocalCall() {
+    void testLocalCall() {
         // see also: org.apache.dubbo.rpc.protocol.injvm.InjvmInvoker.doInvoke
         // InjvmInvoker set remote address to 127.0.0.1:0
         String result = helloService.sayHello("world");
-        Assertions.assertEquals("Hello world, response from provider: 127.0.0.1:0", result);
+        Assertions.assertEquals("Hello world, response from provider: " + InetSocketAddress.createUnresolved("127.0.0.1", 0), result);
 
         String demoResult = demoHelloService.sayHello("world");
-        Assertions.assertEquals("Hello world, response from provider: 127.0.0.1:0", demoResult);
+        Assertions.assertEquals("Hello world, response from provider: " + InetSocketAddress.createUnresolved("127.0.0.1", 0), demoResult);
 
         Map<String, ReferenceBean> referenceBeanMap = applicationContext.getBeansOfType(ReferenceBean.class);
         Assertions.assertEquals(2, referenceBeanMap.size());
@@ -87,10 +89,10 @@ public class LocalCallMultipleReferenceAnnotationsTest {
         @DubboReference
         private HelloService helloService;
 
-        @DubboReference(group = "demo")
+        @DubboReference(group = "demo", version = "2.0.0")
         private HelloService demoHelloService;
 
-        @DubboReference(group = "${biz.group}")
+        @DubboReference(group = "${biz.group}", version = "${biz.version}")
         private HelloService helloService3;
 
     }
@@ -101,7 +103,7 @@ public class LocalCallMultipleReferenceAnnotationsTest {
         @DubboReference
         private HelloService helloService;
 
-        @DubboReference(group = "${biz.group}")
+        @DubboReference(group = "${biz.group}", version = "2.0.0")
         private HelloService demoHelloService;
 
     }
@@ -122,7 +124,7 @@ public class LocalCallMultipleReferenceAnnotationsTest {
         }
     }
 
-    @DubboService(group = "demo")
+    @DubboService(group = "demo", version = "2.0.0")
     public static class DemoHelloServiceImpl implements HelloService {
         @Override
         public String sayHello(String name) {

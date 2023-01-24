@@ -16,8 +16,9 @@
  */
 package org.apache.dubbo.common.utils;
 
+import org.apache.dubbo.common.config.ConfigurationUtils;
 import org.apache.dubbo.common.constants.CommonConstants;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 
 import java.lang.reflect.Array;
@@ -25,7 +26,6 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
@@ -33,10 +33,14 @@ import java.lang.reflect.Proxy;
 import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 import java.lang.reflect.WildcardType;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Hashtable;
@@ -54,6 +58,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_REFLECTIVE_OPERATION_FAILED;
 import static org.apache.dubbo.common.utils.ClassUtils.isAssignableFrom;
 
 /**
@@ -67,13 +72,19 @@ import static org.apache.dubbo.common.utils.ClassUtils.isAssignableFrom;
  * </ul>
  * <p/>
  * Other type will be covert to a map which contains the attributes and value pair of object.
+ * <p>
+ * TODO: exact PojoUtils to scope bean
  */
 public class PojoUtils {
 
-    private static final Logger logger = LoggerFactory.getLogger(PojoUtils.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(PojoUtils.class);
     private static final ConcurrentMap<String, Method> NAME_METHODS_CACHE = new ConcurrentHashMap<String, Method>();
     private static final ConcurrentMap<Class<?>, ConcurrentMap<String, Field>> CLASS_FIELD_CACHE = new ConcurrentHashMap<Class<?>, ConcurrentMap<String, Field>>();
-    private static final boolean GENERIC_WITH_CLZ = Boolean.parseBoolean(ConfigUtils.getProperty(CommonConstants.GENERIC_WITH_CLZ_KEY, "true"));
+
+    private static final ConcurrentMap<String, Object> CLASS_NOT_FOUND_CACHE = new ConcurrentHashMap<String, Object>();
+
+    private static final Object NOT_FOUND_VALUE = new Object();
+    private static final boolean GENERIC_WITH_CLZ = Boolean.parseBoolean(ConfigurationUtils.getProperty(CommonConstants.GENERIC_WITH_CLZ_KEY, "true"));
     private static final List<Class<?>> CLASS_CAN_BE_STRING = Arrays.asList(Byte.class, Short.class, Integer.class,
         Long.class, Float.class, Double.class, Boolean.class, Character.class);
 
@@ -133,6 +144,10 @@ public class PojoUtils {
 
         if (ReflectUtils.isPrimitives(pojo.getClass())) {
             return pojo;
+        }
+
+        if (pojo instanceof LocalDate || pojo instanceof LocalDateTime || pojo instanceof LocalTime) {
+            return pojo.toString();
         }
 
         if (pojo instanceof Class) {
@@ -396,10 +411,12 @@ public class PojoUtils {
             Object className = ((Map<Object, Object>) pojo).get("class");
             if (className instanceof String) {
                 SerializeClassChecker.getInstance().validateClass((String) className);
-                try {
-                    type = ClassUtils.forName((String) className);
-                } catch (ClassNotFoundException e) {
-                    // ignore
+                if (!CLASS_NOT_FOUND_CACHE.containsKey(className)) {
+                    try {
+                        type = ClassUtils.forName((String) className);
+                    } catch (ClassNotFoundException e) {
+                        CLASS_NOT_FOUND_CACHE.put((String) className, NOT_FOUND_VALUE);
+                    }
                 }
             }
 
@@ -477,7 +494,18 @@ public class PojoUtils {
                 history.put(pojo, dest);
                 return dest;
             } else {
-                Object dest = newInstance(type);
+                Object dest;
+                if (Throwable.class.isAssignableFrom(type)) {
+                    Object message = map.get("message");
+                    if (message instanceof String) {
+                        dest = newThrowableInstance(type, (String) message);
+                    } else {
+                        dest = newInstance(type);
+                    }
+                } else {
+                    dest = newInstance(type);
+                }
+
                 history.put(pojo, dest);
                 for (Map.Entry<Object, Object> entry : map.entrySet()) {
                     Object key = entry.getKey();
@@ -498,7 +526,7 @@ public class PojoUtils {
                                 } catch (Exception e) {
                                     String exceptionDescription = "Failed to set pojo " + dest.getClass().getSimpleName() + " property " + name
                                         + " value " + value.getClass() + ", cause: " + e.getMessage();
-                                    logger.error(exceptionDescription, e);
+                                    logger.error(COMMON_REFLECTIVE_OPERATION_FAILED, "", "", exceptionDescription, e);
                                     throw new RuntimeException(exceptionDescription, e);
                                 }
                             } else if (field != null) {
@@ -509,19 +537,6 @@ public class PojoUtils {
                                     throw new RuntimeException("Failed to set field " + name + " of pojo " + dest.getClass().getName() + " : " + e.getMessage(), e);
                                 }
                             }
-                        }
-                    }
-                }
-                if (dest instanceof Throwable) {
-                    Object message = map.get("message");
-                    if (message instanceof String) {
-                        try {
-                            Field field = Throwable.class.getDeclaredField("detailMessage");
-                            if (!field.isAccessible()) {
-                                field.setAccessible(true);
-                            }
-                            field.set(dest, message);
-                        } catch (Exception e) {
                         }
                     }
                 }
@@ -571,39 +586,42 @@ public class PojoUtils {
         return clazz;
     }
 
+    private static Object newThrowableInstance(Class<?> cls, String message) {
+        try {
+            Constructor<?> messagedConstructor = cls.getDeclaredConstructor(String.class);
+            return messagedConstructor.newInstance(message);
+        } catch (Throwable t) {
+            return newInstance(cls);
+        }
+    }
+
     private static Object newInstance(Class<?> cls) {
         try {
             return cls.newInstance();
         } catch (Throwable t) {
-            try {
-                Constructor<?>[] constructors = cls.getDeclaredConstructors();
-                /**
-                 * From Javadoc java.lang.Class#getDeclaredConstructors
-                 * This method returns an array of Constructor objects reflecting all the constructors
-                 * declared by the class represented by this Class object.
-                 * This method returns an array of length 0,
-                 * if this Class object represents an interface, a primitive type, an array class, or void.
-                 */
-                if (constructors.length == 0) {
-                    throw new RuntimeException("Illegal constructor: " + cls.getName());
-                }
-                Constructor<?> constructor = constructors[0];
-                if (constructor.getParameterTypes().length > 0) {
-                    for (Constructor<?> c : constructors) {
-                        if (c.getParameterTypes().length < constructor.getParameterTypes().length) {
-                            constructor = c;
-                            if (constructor.getParameterTypes().length == 0) {
-                                break;
-                            }
-                        }
-                    }
-                }
-                constructor.setAccessible(true);
-                Object[] parameters = Arrays.stream(constructor.getParameterTypes()).map(PojoUtils::getDefaultValue).toArray();
-                return constructor.newInstance(parameters);
-            } catch (InstantiationException | InvocationTargetException | IllegalAccessException e) {
-                throw new RuntimeException(e.getMessage(), e);
+            Constructor<?>[] constructors = cls.getDeclaredConstructors();
+            /*
+              From Javadoc java.lang.Class#getDeclaredConstructors
+              This method returns an array of Constructor objects reflecting all the constructors
+              declared by the class represented by this Class object.
+              This method returns an array of length 0,
+              if this Class object represents an interface, a primitive type, an array class, or void.
+             */
+            if (constructors.length == 0) {
+                throw new RuntimeException("Illegal constructor: " + cls.getName());
             }
+            Throwable lastError = null;
+            Arrays.sort(constructors, Comparator.comparingInt(a -> a.getParameterTypes().length));
+            for (Constructor<?> constructor : constructors) {
+                try {
+                    constructor.setAccessible(true);
+                    Object[] parameters = Arrays.stream(constructor.getParameterTypes()).map(PojoUtils::getDefaultValue).toArray();
+                    return constructor.newInstance(parameters);
+                } catch (Throwable e) {
+                    lastError = e;
+                }
+            }
+            throw new RuntimeException(lastError.getMessage(), lastError);
         }
     }
 

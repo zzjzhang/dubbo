@@ -16,13 +16,16 @@
  */
 package org.apache.dubbo.config;
 
-import org.apache.dubbo.common.utils.ConfigUtils;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.config.api.Greeting;
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
+import org.apache.dubbo.config.context.ConfigMode;
+import org.apache.dubbo.config.support.Nested;
 import org.apache.dubbo.config.support.Parameter;
 import org.apache.dubbo.config.utils.ConfigValidationUtils;
 import org.apache.dubbo.rpc.model.ApplicationModel;
+import org.apache.dubbo.rpc.model.FrameworkModel;
+import org.apache.dubbo.rpc.model.ScopeModel;
 
 import org.hamcrest.Matchers;
 import org.junit.jupiter.api.AfterEach;
@@ -34,7 +37,6 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
-import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -47,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-public class AbstractConfigTest {
+class AbstractConfigTest {
 
     @BeforeEach
     public void beforeEach() {
@@ -97,7 +99,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void testAppendProperties2() throws Exception {
+    void testAppendProperties2() throws Exception {
         try {
             System.setProperty("dubbo.properties.two.i", "2");
             PropertiesConfig config = new PropertiesConfig("two");
@@ -109,7 +111,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void testAppendProperties3() throws Exception {
+    void testAppendProperties3() throws Exception {
         try {
             Properties p = new Properties();
             p.put("dubbo.properties.str", "dubbo");
@@ -124,7 +126,7 @@ public class AbstractConfigTest {
     }*/
 
     @Test
-    public void testValidateProtocolConfig() {
+    void testValidateProtocolConfig() {
         ProtocolConfig protocolConfig = new ProtocolConfig();
         protocolConfig.setCodec("exchange");
         protocolConfig.setName("test");
@@ -133,7 +135,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void testAppendParameters1() throws Exception {
+    void testAppendParameters1() throws Exception {
         Map<String, String> parameters = new HashMap<String, String>();
         parameters.put("num", "ONE");
         AbstractConfig.appendParameters(parameters, new ParameterConfig(1, "hello/world", 30, "password"), "prefix");
@@ -146,7 +148,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void testAppendParameters2() throws Exception {
+    void testAppendParameters2() throws Exception {
         Assertions.assertThrows(IllegalStateException.class, () -> {
             Map<String, String> parameters = new HashMap<String, String>();
             AbstractConfig.appendParameters(parameters, new ParameterConfig());
@@ -154,14 +156,14 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void testAppendParameters3() throws Exception {
+    void testAppendParameters3() throws Exception {
         Map<String, String> parameters = new HashMap<String, String>();
         AbstractConfig.appendParameters(parameters, null);
         assertTrue(parameters.isEmpty());
     }
 
     @Test
-    public void testAppendParameters4() throws Exception {
+    void testAppendParameters4() throws Exception {
         Map<String, String> parameters = new HashMap<String, String>();
         AbstractConfig.appendParameters(parameters, new ParameterConfig(1, "hello/world", 30, "password"));
         Assertions.assertEquals("one", parameters.get("key.1"));
@@ -172,8 +174,8 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void testAppendAttributes1() throws Exception {
-        ParameterConfig config = new ParameterConfig(1, "hello/world", 30, "password");
+    void testAppendAttributes1() throws Exception {
+        ParameterConfig config = new ParameterConfig(1, "hello/world", 30, "password","BEIJING");
         Map<String, String> parameters = new HashMap<>();
         AbstractConfig.appendParameters(parameters, config);
 
@@ -185,30 +187,32 @@ public class AbstractConfigTest {
         // secret is excluded for url parameters, but keep for attributes
         Assertions.assertEquals(config.getSecret(), attributes.get("secret"));
         Assertions.assertEquals(config.getName(), attributes.get("name"));
-        Assertions.assertEquals(""+config.getNumber(), attributes.get("number"));
-        Assertions.assertEquals(""+config.getAge(), attributes.get("age"));
+        Assertions.assertEquals(String.valueOf(config.getNumber()), attributes.get("number"));
+        Assertions.assertEquals(String.valueOf(config.getAge()), attributes.get("age"));
         Assertions.assertEquals(StringUtils.encodeParameters(config.getParameters()), attributes.get("parameters"));
+        Assertions.assertTrue(parameters.containsKey("detail.address"));// detailAddress -> detail.address
+        Assertions.assertTrue(attributes.containsKey("detail-address"));// detailAddress -> detail-address
     }
 
     @Test
-    public void checkExtension() throws Exception {
-        Assertions.assertThrows(IllegalStateException.class, () -> ConfigValidationUtils.checkExtension(Greeting.class, "hello", "world"));
+    void checkExtension() throws Exception {
+        Assertions.assertThrows(IllegalStateException.class, () -> ConfigValidationUtils.checkExtension(ApplicationModel.defaultModel(), Greeting.class, "hello", "world"));
     }
 
     @Test
-    public void checkMultiExtension1() throws Exception {
+    void checkMultiExtension1() throws Exception {
         Assertions.assertThrows(IllegalStateException.class,
-                () -> ConfigValidationUtils.checkMultiExtension(Greeting.class, "hello", "default,world"));
+                () -> ConfigValidationUtils.checkMultiExtension(ApplicationModel.defaultModel(), Greeting.class, "hello", "default,world"));
     }
 
     @Test
-    public void checkMultiExtension2() throws Exception {
+    void checkMultiExtension2() throws Exception {
         Assertions.assertThrows(IllegalStateException.class,
-                () -> ConfigValidationUtils.checkMultiExtension(Greeting.class, "hello", "default,-world"));
+                () -> ConfigValidationUtils.checkMultiExtension(ApplicationModel.defaultModel(), Greeting.class, "hello", "default,-world"));
     }
 
     @Test
-    public void checkLength() throws Exception {
+    void checkLength() throws Exception {
         Assertions.assertDoesNotThrow(() -> {
             StringBuilder builder = new StringBuilder();
             for (int i = 0; i <= 200; i++) {
@@ -219,7 +223,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void checkPathLength() throws Exception {
+    void checkPathLength() throws Exception {
         Assertions.assertDoesNotThrow(() -> {
             StringBuilder builder = new StringBuilder();
             for (int i = 0; i <= 200; i++) {
@@ -230,12 +234,12 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void checkName() throws Exception {
+    void checkName() throws Exception {
         Assertions.assertDoesNotThrow(() -> ConfigValidationUtils.checkName("hello", "world%"));
     }
 
     @Test
-    public void checkNameHasSymbol() throws Exception {
+    void checkNameHasSymbol() throws Exception {
         try {
             ConfigValidationUtils.checkNameHasSymbol("hello", ":*,/ -0123\tabcdABCD");
             ConfigValidationUtils.checkNameHasSymbol("mock", "force:return world");
@@ -245,7 +249,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void checkKey() throws Exception {
+    void checkKey() throws Exception {
         try {
             ConfigValidationUtils.checkKey("hello", "*,-0123abcdABCD");
         } catch (Exception e) {
@@ -254,7 +258,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void checkMultiName() throws Exception {
+    void checkMultiName() throws Exception {
         try {
             ConfigValidationUtils.checkMultiName("hello", ",-._0123abcdABCD");
         } catch (Exception e) {
@@ -263,7 +267,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void checkPathName() throws Exception {
+    void checkPathName() throws Exception {
         try {
             ConfigValidationUtils.checkPathName("hello", "/-$._0123abcdABCD");
         } catch (Exception e) {
@@ -272,7 +276,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void checkMethodName() throws Exception {
+    void checkMethodName() throws Exception {
         try {
             ConfigValidationUtils.checkMethodName("hello", "abcdABCD0123abcd");
         } catch (Exception e) {
@@ -288,7 +292,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void checkParameterName() throws Exception {
+    void checkParameterName() throws Exception {
         Map<String, String> parameters = Collections.singletonMap("hello", ":*,/-._0123abcdABCD");
         try {
             ConfigValidationUtils.checkParameterName(parameters);
@@ -315,7 +319,7 @@ public class AbstractConfigTest {
     }
 
     @Test
-    public void testRefreshAll() {
+    void testRefreshAll() {
         try {
             OverrideConfig overrideConfig = new OverrideConfig();
             overrideConfig.setAddress("override-config://127.0.0.1:2181");
@@ -331,8 +335,8 @@ public class AbstractConfigTest {
             external.put("dubbo.override.key", "external");
             // @Parameter(key="key2", useKeyAsProperty=true)
             external.put("dubbo.override.key2", "external");
-            ApplicationModel.defaultModel().getApplicationEnvironment().initialize();
-            ApplicationModel.defaultModel().getApplicationEnvironment().setExternalConfigMap(external);
+            ApplicationModel.defaultModel().getModelEnvironment().initialize();
+            ApplicationModel.defaultModel().getModelEnvironment().setExternalConfigMap(external);
 
             SysProps.setProperty("dubbo.override.address", "system://127.0.0.1:2181");
             SysProps.setProperty("dubbo.override.protocol", "system");
@@ -349,13 +353,12 @@ public class AbstractConfigTest {
             Assertions.assertEquals("external", overrideConfig.getKey());
             Assertions.assertEquals("system", overrideConfig.getKey2());
         } finally {
-            SysProps.clear();
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
         }
     }
 
     @Test
-    public void testRefreshSystem() {
+    void testRefreshSystem() {
         try {
             OverrideConfig overrideConfig = new OverrideConfig();
             overrideConfig.setAddress("override-config://127.0.0.1:2181");
@@ -374,15 +377,14 @@ public class AbstractConfigTest {
             Assertions.assertEquals("override-config://", overrideConfig.getEscape());
             Assertions.assertEquals("system", overrideConfig.getKey());
         } finally {
-            SysProps.clear();
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
         }
     }
 
     @Test
-    public void testRefreshProperties() throws Exception {
+    void testRefreshProperties() throws Exception {
         try {
-            ApplicationModel.defaultModel().getApplicationEnvironment().setExternalConfigMap(new HashMap<>());
+            ApplicationModel.defaultModel().getModelEnvironment().setExternalConfigMap(new HashMap<>());
             OverrideConfig overrideConfig = new OverrideConfig();
             overrideConfig.setAddress("override-config://127.0.0.1:2181");
             overrideConfig.setProtocol("override-config");
@@ -390,22 +392,22 @@ public class AbstractConfigTest {
 
             Properties properties = new Properties();
             properties.load(this.getClass().getResourceAsStream("/dubbo.properties"));
-            ConfigUtils.setProperties(properties);
+            ApplicationModel.defaultModel().getModelEnvironment().getPropertiesConfiguration().setProperties(properties);
 
             overrideConfig.refresh();
 
             Assertions.assertEquals("override-config://127.0.0.1:2181", overrideConfig.getAddress());
             Assertions.assertEquals("override-config", overrideConfig.getProtocol());
             Assertions.assertEquals("override-config://", overrideConfig.getEscape());
+            Assertions.assertEquals("properties", overrideConfig.getKey2());
             //Assertions.assertEquals("properties", overrideConfig.getUseKeyAsProperty());
         } finally {
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
-            ConfigUtils.setProperties(null);
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
         }
     }
 
     @Test
-    public void testRefreshExternal() {
+    void testRefreshExternal() {
         try {
             OverrideConfig overrideConfig = new OverrideConfig();
             overrideConfig.setAddress("override-config://127.0.0.1:2181");
@@ -423,8 +425,8 @@ public class AbstractConfigTest {
             external.put("dubbo.override.key", "external");
             // @Parameter(key="key2", useKeyAsProperty=true)
             external.put("dubbo.override.key2", "external");
-            ApplicationModel.defaultModel().getApplicationEnvironment().initialize();
-            ApplicationModel.defaultModel().getApplicationEnvironment().setExternalConfigMap(external);
+            ApplicationModel.defaultModel().getModelEnvironment().initialize();
+            ApplicationModel.defaultModel().getModelEnvironment().setExternalConfigMap(external);
 
             overrideConfig.refresh();
 
@@ -435,12 +437,12 @@ public class AbstractConfigTest {
             Assertions.assertEquals("external", overrideConfig.getKey());
             Assertions.assertEquals("external", overrideConfig.getKey2());
         } finally {
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
         }
     }
 
     @Test
-    public void testRefreshById() {
+    void testRefreshById() {
         try {
             OverrideConfig overrideConfig = new OverrideConfig();
             overrideConfig.setId("override-id");
@@ -455,8 +457,8 @@ public class AbstractConfigTest {
             external.put("dubbo.overrides.override-id.key2", "external");
             external.put("dubbo.override.address", "external://127.0.0.1:2181");
             external.put("dubbo.override.exclude", "external");
-            ApplicationModel.defaultModel().getApplicationEnvironment().initialize();
-            ApplicationModel.defaultModel().getApplicationEnvironment().setExternalConfigMap(external);
+            ApplicationModel.defaultModel().getModelEnvironment().initialize();
+            ApplicationModel.defaultModel().getModelEnvironment().setExternalConfigMap(external);
 
             // refresh config
             overrideConfig.refresh();
@@ -467,12 +469,12 @@ public class AbstractConfigTest {
             Assertions.assertEquals("external", overrideConfig.getKey());
             Assertions.assertEquals("external", overrideConfig.getKey2());
         } finally {
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
         }
     }
 
     @Test
-    public void testRefreshParameters() {
+    void testRefreshParameters() {
         try {
             Map<String, String> parameters = new HashMap<>();
             parameters.put("key1", "value1");
@@ -483,8 +485,8 @@ public class AbstractConfigTest {
 
             Map<String, String> external = new HashMap<>();
             external.put("dubbo.override.parameters", "[{key3:value3},{key4:value4},{key2:value5}]");
-            ApplicationModel.defaultModel().getApplicationEnvironment().initialize();
-            ApplicationModel.defaultModel().getApplicationEnvironment().setExternalConfigMap(external);
+            ApplicationModel.defaultModel().getModelEnvironment().initialize();
+            ApplicationModel.defaultModel().getModelEnvironment().setExternalConfigMap(external);
 
             // refresh config
             overrideConfig.refresh();
@@ -500,57 +502,105 @@ public class AbstractConfigTest {
             Assertions.assertEquals("value6", overrideConfig.getParameters().get("key3"));
             Assertions.assertEquals("value4", overrideConfig.getParameters().get("key4"));
         } finally {
-            SysProps.clear();
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
         }
     }
 
     @Test
-    public void testRefreshParametersWithAttribute() {
+    void testRefreshParametersWithAttribute() {
         try {
             OverrideConfig overrideConfig = new OverrideConfig();
             SysProps.setProperty("dubbo.override.parameters.key00", "value00");
             overrideConfig.refresh();
             assertEquals("value00", overrideConfig.getParameters().get("key00"));
         } finally {
-            SysProps.clear();
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
         }
     }
 
     @Test
-    public void testOnlyPrefixedKeyTakeEffect() {
+    void testRefreshParametersWithOverrideConfigMode() {
+        FrameworkModel frameworkModel = new FrameworkModel();
+        try {
+            // test OVERRIDE_ALL configMode
+            {
+                SysProps.setProperty(ConfigKeys.DUBBO_CONFIG_MODE, ConfigMode.OVERRIDE_ALL.name());
+                SysProps.setProperty("dubbo.override.address", "system://127.0.0.1:2181");
+                SysProps.setProperty("dubbo.override.protocol", "system");
+                SysProps.setProperty("dubbo.override.parameters", "[{key1:systemValue1},{key2:systemValue2}]");
+
+                ApplicationModel applicationModel1 = frameworkModel.newApplication();
+                OverrideConfig overrideConfig = new OverrideConfig(applicationModel1);
+                overrideConfig.setAddress("override-config://127.0.0.1:2181");
+                overrideConfig.setProtocol("override-config");
+                Map<String, String> parameters = new HashMap<>();
+                parameters.put("key1", "value1");
+                parameters.put("key3", "value3");
+                overrideConfig.setParameters(parameters);
+
+                // overrideConfig's config is overridden by system config
+                overrideConfig.refresh();
+                Assertions.assertEquals(overrideConfig.getAddress(), "system://127.0.0.1:2181");
+                Assertions.assertEquals(overrideConfig.getProtocol(), "system");
+                Assertions.assertEquals(overrideConfig.getParameters(),
+                    StringUtils.parseParameters("[{key1:systemValue1},{key2:systemValue2},{key3:value3}]"));
+
+            }
+            // test OVERRIDE_IF_ABSENT configMode
+            {
+                SysProps.setProperty(ConfigKeys.DUBBO_CONFIG_MODE, ConfigMode.OVERRIDE_IF_ABSENT.name());
+                SysProps.setProperty("dubbo.override.address", "system://127.0.0.1:2181");
+                SysProps.setProperty("dubbo.override.protocol", "system");
+                SysProps.setProperty("dubbo.override.parameters", "[{key1:systemValue1},{key2:systemValue2}]");
+                SysProps.setProperty("dubbo.override.key", "systemKey");
+
+                ApplicationModel applicationModel = frameworkModel.newApplication();
+                OverrideConfig overrideConfig = new OverrideConfig(applicationModel);
+                overrideConfig.setAddress("override-config://127.0.0.1:2181");
+                overrideConfig.setProtocol("override-config");
+                Map<String, String> parameters = new HashMap<>();
+                parameters.put("key1", "value1");
+                parameters.put("key3", "value3");
+                overrideConfig.setParameters(parameters);
+
+                // overrideConfig's config is overridden/set by system config only when the overrideConfig's config is absent/empty
+                overrideConfig.refresh();
+                Assertions.assertEquals(overrideConfig.getAddress(), "override-config://127.0.0.1:2181");
+                Assertions.assertEquals(overrideConfig.getProtocol(), "override-config");
+                Assertions.assertEquals(overrideConfig.getKey(), "systemKey");
+                Assertions.assertEquals(overrideConfig.getParameters(),
+                    StringUtils.parseParameters("[{key1:value1},{key2:systemValue2},{key3:value3}]"));
+            }
+
+        } finally {
+            frameworkModel.destroy();
+        }
+    }
+
+    @Test
+    void testOnlyPrefixedKeyTakeEffect() {
         try {
             OverrideConfig overrideConfig = new OverrideConfig();
             overrideConfig.setNotConflictKey("value-from-config");
 
             Map<String, String> external = new HashMap<>();
             external.put("notConflictKey", "value-from-external");
+            external.put("dubbo.override.notConflictKey2", "value-from-external");
 
-            try {
-                Map<String, String> map = new HashMap<>();
-                map.put("notConflictKey", "value-from-env");
-                map.put("dubbo.override.notConflictKey2", "value-from-env");
-                setOsEnv(map);
-            } catch (Exception e) {
-                // ignore
-                e.printStackTrace();
-            }
-
-            ApplicationModel.defaultModel().getApplicationEnvironment().setExternalConfigMap(external);
+            ApplicationModel.defaultModel().getModelEnvironment().setExternalConfigMap(external);
 
             overrideConfig.refresh();
 
             Assertions.assertEquals("value-from-config", overrideConfig.getNotConflictKey());
-            Assertions.assertEquals("value-from-env", overrideConfig.getNotConflictKey2());
+            Assertions.assertEquals("value-from-external", overrideConfig.getNotConflictKey2());
         } finally {
-            ApplicationModel.defaultModel().getApplicationEnvironment().destroy();
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
 
         }
     }
 
     @Test
-    public void tetMetaData() {
+    void tetMetaData() {
         OverrideConfig overrideConfig = new OverrideConfig();
         overrideConfig.setId("override-id");
         overrideConfig.setAddress("override-config://127.0.0.1:2181");
@@ -565,10 +615,17 @@ public class AbstractConfigTest {
         Assertions.assertEquals("override-config", metaData.get("exclude"));
         Assertions.assertNull(metaData.get("key"));
         Assertions.assertNull(metaData.get("key2"));
+
+        // with prefix
+        Map<String, String> prefixMetadata = overrideConfig.getMetaData(OverrideConfig.getTypePrefix(OverrideConfig.class));
+        Assertions.assertEquals("override-config://127.0.0.1:2181", prefixMetadata.get("dubbo.override.address"));
+        Assertions.assertEquals("override-config", prefixMetadata.get("dubbo.override.protocol"));
+        Assertions.assertEquals("override-config://", prefixMetadata.get("dubbo.override.escape"));
+        Assertions.assertEquals("override-config", prefixMetadata.get("dubbo.override.exclude"));
     }
 
     @Test
-    public void testEquals() {
+    void testEquals() {
         ApplicationConfig application1 = new ApplicationConfig();
         ApplicationConfig application2 = new ApplicationConfig();
         application1.setName("app1");
@@ -585,6 +642,24 @@ public class AbstractConfigTest {
         protocol2.setName("dubbo");
         protocol2.setPort(1235);
         Assertions.assertNotEquals(protocol1, protocol2);
+    }
+
+    @Test
+    void testRegistryConfigEquals() {
+        RegistryConfig hangzhou = new RegistryConfig();
+        hangzhou.setAddress("nacos://localhost:8848");
+        HashMap<String, String> parameters = new HashMap<>();
+        parameters.put("namespace", "hangzhou");
+        hangzhou.setParameters(parameters);
+
+        RegistryConfig shanghai = new RegistryConfig();
+        shanghai.setAddress("nacos://localhost:8848");
+        parameters = new HashMap<>();
+        parameters.put("namespace", "shanghai");
+
+        shanghai.setParameters(parameters);
+
+        Assertions.assertNotEquals(hangzhou, shanghai);
     }
 
     @Retention(RetentionPolicy.RUNTIME)
@@ -621,6 +696,13 @@ public class AbstractConfigTest {
         public String notConflictKey;
         public String notConflictKey2;
         protected Map<String, String> parameters;
+
+        public OverrideConfig() {
+        }
+
+        public OverrideConfig(ScopeModel scopeModel) {
+            super(scopeModel);
+        }
 
         public String getAddress() {
             return address;
@@ -795,15 +877,29 @@ public class AbstractConfigTest {
         private String name;
         private int age;
         private String secret;
+        private String detailAddress;
 
         ParameterConfig() {
         }
 
         ParameterConfig(int number, String name, int age, String secret) {
+            this(number, name, age, secret, "");
+        }
+
+        ParameterConfig(int number, String name, int age, String secret,String detailAddress) {
             this.number = number;
             this.name = name;
             this.age = age;
             this.secret = secret;
+            this.detailAddress = detailAddress;
+        }
+
+        public String getDetailAddress() {
+            return detailAddress;
+        }
+
+        public void setDetailAddress(String detailAddress) {
+            this.detailAddress = detailAddress;
         }
 
         @Parameter(key = "num", append = true)
@@ -897,36 +993,8 @@ public class AbstractConfigTest {
         }
     }
 
-    protected static void setOsEnv(Map<String, String> newenv) throws Exception {
-        try {
-            Class<?> processEnvironmentClass = Class.forName("java.lang.ProcessEnvironment");
-            Field theEnvironmentField = processEnvironmentClass.getDeclaredField("theEnvironment");
-            theEnvironmentField.setAccessible(true);
-            Map<String, String> env = (Map<String, String>) theEnvironmentField.get(null);
-            env.putAll(newenv);
-            Field theCaseInsensitiveEnvironmentField = processEnvironmentClass.getDeclaredField("theCaseInsensitiveEnvironment");
-            theCaseInsensitiveEnvironmentField.setAccessible(true);
-            Map<String, String> cienv = (Map<String, String>) theCaseInsensitiveEnvironmentField.get(null);
-            cienv.putAll(newenv);
-        } catch (NoSuchFieldException e) {
-            Class[] classes = Collections.class.getDeclaredClasses();
-            Map<String, String> env = System.getenv();
-            for (Class cl : classes) {
-                if ("java.util.Collections$UnmodifiableMap".equals(cl.getName())) {
-                    Field field = cl.getDeclaredField("m");
-                    field.setAccessible(true);
-                    Object obj = field.get(env);
-                    Map<String, String> map = (Map<String, String>) obj;
-                    map.clear();
-                    map.putAll(newenv);
-                }
-            }
-        }
-    }
-
-
     @Test
-    public void testMetaData() throws Exception {
+    void testMetaData() throws Exception {
 
         // Expect empty metadata for new instance
         // Check and set default value of field in checkDefault() method
@@ -940,7 +1008,75 @@ public class AbstractConfigTest {
             AbstractConfig config = configClass.newInstance();
             Map<String, String> metaData = config.getMetaData();
             Assertions.assertEquals(0, metaData.size(), "Expect empty metadata for new instance but found: "+metaData +" of "+configClass.getSimpleName());
-            System.out.println(configClass.getSimpleName()+" metadata is checked.");
+            System.out.println(configClass.getSimpleName() + " metadata is checked.");
+        }
+    }
+
+    @Test
+    void testRefreshNested() {
+        try {
+            OuterConfig outerConfig = new OuterConfig();
+
+            Map<String, String> external = new HashMap<>();
+            external.put("dubbo.outer.a1", "1");
+            external.put("dubbo.outer.b.b1", "11");
+            external.put("dubbo.outer.b.b2", "12");
+            ApplicationModel.defaultModel().getModelEnvironment().initialize();
+            ApplicationModel.defaultModel().getModelEnvironment().setExternalConfigMap(external);
+
+            // refresh config
+            outerConfig.refresh();
+
+            Assertions.assertEquals(1, outerConfig.getA1());
+            Assertions.assertEquals(11, outerConfig.getB().getB1());
+            Assertions.assertEquals(12, outerConfig.getB().getB2());
+        } finally {
+            ApplicationModel.defaultModel().getModelEnvironment().destroy();
+        }
+    }
+
+    private static class OuterConfig extends AbstractConfig {
+        private Integer a1;
+
+        @Nested
+        private InnerConfig b;
+
+        public Integer getA1() {
+            return a1;
+        }
+
+        public void setA1(Integer a1) {
+            this.a1 = a1;
+        }
+
+        public InnerConfig getB() {
+            return b;
+        }
+
+        public void setB(InnerConfig b) {
+            this.b = b;
+        }
+    }
+
+    public static class InnerConfig {
+        private Integer b1;
+
+        private Integer b2;
+
+        public Integer getB1() {
+            return b1;
+        }
+
+        public void setB1(Integer b1) {
+            this.b1 = b1;
+        }
+
+        public Integer getB2() {
+            return b2;
+        }
+
+        public void setB2(Integer b2) {
+            this.b2 = b2;
         }
     }
 }

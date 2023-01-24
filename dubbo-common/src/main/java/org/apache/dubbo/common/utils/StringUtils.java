@@ -17,10 +17,8 @@
 package org.apache.dubbo.common.utils;
 
 import org.apache.dubbo.common.io.UnsafeStringWriter;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
-
-import com.alibaba.fastjson.JSON;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -48,6 +46,7 @@ import static org.apache.dubbo.common.constants.CommonConstants.INTERFACE_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.SEPARATOR_REGEX;
 import static org.apache.dubbo.common.constants.CommonConstants.UNDERLINE_SEPARATOR;
 import static org.apache.dubbo.common.constants.CommonConstants.VERSION_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_JSON_CONVERT_EXCEPTION;
 
 /**
  * StringUtils
@@ -59,9 +58,9 @@ public final class StringUtils {
     public static final int INDEX_NOT_FOUND = -1;
     public static final String[] EMPTY_STRING_ARRAY = new String[0];
 
-    private static final Logger logger = LoggerFactory.getLogger(StringUtils.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(StringUtils.class);
     private static final Pattern KVP_PATTERN = Pattern.compile("([_.a-zA-Z0-9][-_.a-zA-Z0-9]*)[=](.*)"); //key value pair pattern.
-    private static final Pattern INT_PATTERN = Pattern.compile("^\\d+$");
+    private static final Pattern NUM_PATTERN = Pattern.compile("^\\d+$");
     private static final Pattern PARAMETERS_PATTERN = Pattern.compile("^\\[((\\s*\\{\\s*[\\w_\\-\\.]+\\s*:\\s*.+?\\s*\\}\\s*,?\\s*)+)\\s*\\]$");
     private static final Pattern PAIR_PARAMETERS_PATTERN = Pattern.compile("^\\{\\s*([\\w-_\\.]+)\\s*:\\s*(.+)\\s*\\}$");
     private static final int PAD_LIMIT = 8192;
@@ -426,7 +425,18 @@ public final class StringUtils {
     }
 
     /**
+     * is not blank string.
+     *
+     * @param cs source string.
+     * @return is not blank.
+     */
+    public static boolean isNotBlank(CharSequence cs) {
+        return !isBlank(cs);
+    }
+
+    /**
      * Check the cs String whether contains non whitespace characters.
+     *
      * @param cs
      * @return
      */
@@ -505,8 +515,10 @@ public final class StringUtils {
     }
 
     /**
-     * @param s1
-     * @param s2
+     * if s1 is null and s2 is null, then return true
+     *
+     * @param s1 str1
+     * @param s2 str2
      * @return equals
      */
     public static boolean isEquals(String s1, String s2) {
@@ -520,17 +532,33 @@ public final class StringUtils {
     }
 
     /**
-     * is integer string.
+     * is positive integer or zero string.
      *
-     * @param str
-     * @return is integer
+     * @param str a string
+     * @return is positive integer or zero
      */
-    public static boolean isInteger(String str) {
-        return isNotEmpty(str) && INT_PATTERN.matcher(str).matches();
+    public static boolean isNumber(String str) {
+        return isNotEmpty(str) && NUM_PATTERN.matcher(str).matches();
     }
 
+    /**
+     * parse str to Integer(if str is not number or n < 0, then return 0)
+     *
+     * @param str a number str
+     * @return positive integer or zero
+     */
     public static int parseInteger(String str) {
-        return isInteger(str) ? Integer.parseInt(str) : 0;
+        return isNumber(str) ? Integer.parseInt(str) : 0;
+    }
+
+    /**
+     * parse str to Long(if str is not number or n < 0, then return 0)
+     *
+     * @param str a number str
+     * @return positive long or zero
+     */
+    public static long parseLong(String str) {
+        return isNumber(str) ? Long.parseLong(str) : 0;
     }
 
     /**
@@ -746,9 +774,9 @@ public final class StringUtils {
         }
 
         return unmodifiableSet(values
-                .stream()
-                .map(String::trim)
-                .collect(LinkedHashSet::new, Set::add, Set::addAll));
+            .stream()
+            .map(String::trim)
+            .collect(LinkedHashSet::new, Set::add, Set::addAll));
     }
 
     /**
@@ -937,20 +965,20 @@ public final class StringUtils {
         if (str == null) {
             return false;
         }
-        return str.chars().allMatch(ch -> (ch == separator) || isWord((char)ch) );
+        return str.chars().allMatch(ch -> (ch == separator) || isWord((char) ch));
     }
 
     private static boolean isWord(String str) {
         if (str == null) {
             return false;
         }
-        return str.chars().allMatch(ch -> isWord((char)ch));
+        return str.chars().allMatch(ch -> isWord((char) ch));
     }
 
     private static boolean isWord(char ch) {
         if ((ch >= 'A' && ch <= 'Z') ||
-                (ch >= 'a' && ch <= 'z') ||
-                (ch >= '0' && ch <= '9')) {
+            (ch >= 'a' && ch <= 'z') ||
+            (ch >= '0' && ch <= '9')) {
             return true;
         }
         return false;
@@ -960,6 +988,7 @@ public final class StringUtils {
      * Convert snake_case or SNAKE_CASE to kebab-case.
      * <p>
      * NOTE: Return itself if it's not a snake case.
+     *
      * @param snakeName
      * @param split
      * @return
@@ -978,6 +1007,7 @@ public final class StringUtils {
 
     /**
      * Convert camelCase or snake_case/SNAKE_CASE to kebab-case
+     *
      * @param str
      * @param split
      * @return
@@ -1000,9 +1030,9 @@ public final class StringUtils {
                 buf.append(arg);
             } else {
                 try {
-                    buf.append(JSON.toJSONString(arg));
+                    buf.append(JsonUtils.getJson().toJson(arg));
                 } catch (Exception e) {
-                    logger.warn(e.getMessage(), e);
+                    logger.warn(COMMON_JSON_CONVERT_EXCEPTION, "", "", e.getMessage(), e);
                     buf.append(arg);
                 }
             }
@@ -1127,6 +1157,7 @@ public final class StringUtils {
 
     /**
      * Decode parameters string to map
+     *
      * @param rawParameters format like '[{a:b},{c:d}]'
      * @return
      */
@@ -1154,6 +1185,7 @@ public final class StringUtils {
 
     /**
      * Encode parameters map to string, like '[{a:b},{c:d}]'
+     *
      * @param params
      * @return
      */
@@ -1164,7 +1196,7 @@ public final class StringUtils {
 
         StringBuilder sb = new StringBuilder();
         sb.append('[');
-        params.forEach((key,value) -> {
+        params.forEach((key, value) -> {
             // {key:value},
             if (hasText(value)) {
                 sb.append('{').append(key).append(':').append(value).append("},");
@@ -1172,7 +1204,7 @@ public final class StringUtils {
         });
         // delete last separator ','
         if (sb.charAt(sb.length() - 1) == ',') {
-            sb.deleteCharAt(sb.length()-1);
+            sb.deleteCharAt(sb.length() - 1);
         }
         sb.append(']');
         return sb.toString();
@@ -1193,7 +1225,7 @@ public final class StringUtils {
         int lo = decodeHexNibble(s.charAt(pos + 1));
         if (hi == -1 || lo == -1) {
             throw new IllegalArgumentException(String.format(
-                    "invalid hex byte '%s' at index %d of '%s'", s.subSequence(pos, pos + 2), pos, s));
+                "invalid hex byte '%s' at index %d of '%s'", s.subSequence(pos, pos + 2), pos, s));
         }
         return (byte) ((hi << 4) + lo);
     }
@@ -1213,6 +1245,7 @@ public final class StringUtils {
 
     /**
      * Test str whether starts with the prefix ignore case.
+     *
      * @param str
      * @param prefix
      * @return

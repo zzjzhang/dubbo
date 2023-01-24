@@ -18,27 +18,24 @@ package org.apache.dubbo.rpc.model;
 
 import org.apache.dubbo.common.extension.ExtensionPostProcessor;
 
-public class ScopeModelAwareExtensionProcessor implements ExtensionPostProcessor {
+public class ScopeModelAwareExtensionProcessor implements ExtensionPostProcessor, ScopeModelAccessor {
     private ScopeModel scopeModel;
     private FrameworkModel frameworkModel;
     private ApplicationModel applicationModel;
     private ModuleModel moduleModel;
-    private volatile boolean inited;
 
     public ScopeModelAwareExtensionProcessor(ScopeModel scopeModel) {
         this.scopeModel = scopeModel;
+        initialize();
     }
 
-    private void init() {
-        if (inited) {
-            return;
-        }
+    private void initialize() {
 
         // NOTE: Do not create a new model or use the default application/module model here!
         // Only the visible and only matching scope model can be injected, that is, module -> application -> framework.
         // The converse is a one-to-many relationship and cannot be injected.
         // One framework may have multiple applications, and one application may have multiple modules.
-        // So, the spi extension/bean of application scope can be injected it's application model and framework model,
+        // So, the spi extension/bean of application scope can be injected its application model and framework model,
         // but the spi extension/bean of framework scope cannot be injected an application or module model.
 
         if (scopeModel instanceof FrameworkModel) {
@@ -51,12 +48,10 @@ public class ScopeModelAwareExtensionProcessor implements ExtensionPostProcessor
             applicationModel = moduleModel.getApplicationModel();
             frameworkModel = applicationModel.getFrameworkModel();
         }
-        inited = true;
     }
 
     @Override
     public Object postProcessAfterInitialization(Object instance, String name) throws Exception {
-        init();
         if (instance instanceof ScopeModelAware) {
             ScopeModelAware modelAware = (ScopeModelAware) instance;
             modelAware.setScopeModel(scopeModel);
@@ -73,4 +68,23 @@ public class ScopeModelAwareExtensionProcessor implements ExtensionPostProcessor
         return instance;
     }
 
+    @Override
+    public ScopeModel getScopeModel() {
+        return scopeModel;
+    }
+
+    @Override
+    public FrameworkModel getFrameworkModel() {
+        return frameworkModel;
+    }
+
+    @Override
+    public ApplicationModel getApplicationModel() {
+        return applicationModel;
+    }
+
+    @Override
+    public ModuleModel getModuleModel() {
+        return moduleModel;
+    }
 }

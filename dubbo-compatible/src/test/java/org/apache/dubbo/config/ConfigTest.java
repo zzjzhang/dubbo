@@ -18,7 +18,6 @@
 package org.apache.dubbo.config;
 
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
-import org.apache.dubbo.rpc.model.ApplicationModel;
 import org.apache.dubbo.service.DemoService;
 import org.apache.dubbo.service.DemoServiceImpl;
 
@@ -29,7 +28,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-public class ConfigTest {
+class ConfigTest {
     private com.alibaba.dubbo.config.ApplicationConfig applicationConfig = new com.alibaba.dubbo.config.ApplicationConfig("first-dubbo-test");
     private com.alibaba.dubbo.config.RegistryConfig registryConfig = new com.alibaba.dubbo.config.RegistryConfig("multicast://224.5.6.7:1234");
 
@@ -46,7 +45,7 @@ public class ConfigTest {
     }
 
     @Test
-    public void testConfig() {
+    void testConfig() {
         com.alibaba.dubbo.config.ServiceConfig<DemoService> service = new ServiceConfig<>();
         service.setApplication(applicationConfig);
         service.setRegistry(registryConfig);

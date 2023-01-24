@@ -20,16 +20,17 @@ import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.qos.command.BaseCommand;
 import org.apache.dubbo.qos.command.CommandContext;
-import org.apache.dubbo.qos.legacy.ProtocolUtils;
 import org.apache.dubbo.qos.legacy.service.DemoService;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Protocol;
+import org.apache.dubbo.rpc.model.FrameworkModel;
 import org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol;
 
 import io.netty.channel.Channel;
 import io.netty.util.DefaultAttributeMap;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,9 +39,9 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 
-public class ChangeTelnetTest {
+class ChangeTelnetTest {
     private final DefaultAttributeMap defaultAttributeMap = new DefaultAttributeMap();
-    private static final BaseCommand change = new ChangeTelnet();
+    private BaseCommand change;
 
     private Channel mockChannel;
     private CommandContext mockCommandContext;
@@ -48,12 +49,19 @@ public class ChangeTelnetTest {
 
     @AfterAll
     public static void tearDown() {
+        FrameworkModel.destroyAll();
+    }
 
+    @BeforeAll
+    public static void setUp() {
+        FrameworkModel.destroyAll();
     }
 
     @SuppressWarnings("unchecked")
     @BeforeEach
-    public void setUp() {
+    public void beforeEach() {
+        change = new ChangeTelnet(FrameworkModel.defaultModel());
+
         mockCommandContext = mock(CommandContext.class);
         mockChannel = mock(Channel.class);
         mockInvoker = mock(Invoker.class);
@@ -66,20 +74,20 @@ public class ChangeTelnetTest {
     }
 
     @AfterEach
-    public void after() {
-        ProtocolUtils.closeAll();
+    public void afterEach() {
+        FrameworkModel.destroyAll();
         reset(mockCommandContext, mockChannel, mockInvoker);
     }
 
     @Test
-    public void testChangeSimpleName() {
+    void testChangeSimpleName() {
         ExtensionLoader.getExtensionLoader(Protocol.class).getExtension(DubboProtocol.NAME).export(mockInvoker);
         String result = change.execute(mockCommandContext, new String[]{"DemoService"});
         assertEquals("Used the DemoService as default.\r\nYou can cancel default service by command: cd /", result);
     }
 
     @Test
-    public void testChangeName() {
+    void testChangeName() {
         ExtensionLoader.getExtensionLoader(Protocol.class).getExtension(DubboProtocol.NAME).export(mockInvoker);
         String result = change.execute(mockCommandContext, new String[]{"org.apache.dubbo.qos.legacy.service.DemoService"});
         assertEquals("Used the org.apache.dubbo.qos.legacy.service.DemoService as default.\r\nYou can cancel default service by command: cd /",
@@ -87,32 +95,32 @@ public class ChangeTelnetTest {
     }
 
     @Test
-    public void testChangePath() {
+    void testChangePath() {
         ExtensionLoader.getExtensionLoader(Protocol.class).getExtension(DubboProtocol.NAME).export(mockInvoker);
         String result = change.execute(mockCommandContext, new String[]{"demo"});
         assertEquals("Used the demo as default.\r\nYou can cancel default service by command: cd /", result);
     }
 
     @Test
-    public void testChangeMessageNull() {
+    void testChangeMessageNull() {
         String result = change.execute(mockCommandContext, null);
         assertEquals("Please input service name, eg: \r\ncd XxxService\r\ncd com.xxx.XxxService", result);
     }
 
     @Test
-    public void testChangeServiceNotExport() {
+    void testChangeServiceNotExport() {
         String result = change.execute(mockCommandContext, new String[]{"demo"});
         assertEquals("No such service demo", result);
     }
 
     @Test
-    public void testChangeCancel() {
+    void testChangeCancel() {
         String result = change.execute(mockCommandContext, new String[]{".."});
         assertEquals("Cancelled default service org.apache.dubbo.rpc.protocol.dubbo.support.DemoService.", result);
     }
 
     @Test
-    public void testChangeCancel2() {
+    void testChangeCancel2() {
         String result = change.execute(mockCommandContext, new String[]{"/"});
         assertEquals("Cancelled default service org.apache.dubbo.rpc.protocol.dubbo.support.DemoService.", result);
     }

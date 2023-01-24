@@ -18,6 +18,7 @@ package org.apache.dubbo.config.spring.context.annotation;
 
 import org.apache.dubbo.config.AbstractConfig;
 import org.apache.dubbo.config.spring.context.DubboSpringInitializer;
+
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
 import org.springframework.core.Ordered;
@@ -35,22 +36,7 @@ public class DubboConfigConfigurationRegistrar implements ImportBeanDefinitionRe
 
     @Override
     public void registerBeanDefinitions(AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
-
         // initialize dubbo beans
         DubboSpringInitializer.initialize(registry);
-
-        // Config beans creating from props have move to DubboBootstrap
-//        AnnotationAttributes attributes = AnnotationAttributes.fromMap(
-//                importingClassMetadata.getAnnotationAttributes(EnableDubboConfig.class.getName()));
-//
-//        boolean multiple = attributes.getBoolean("multiple");
-//
-//        // Single Config Bindings
-//        registerBeans(registry, DubboConfigConfiguration.Single.class);
-//
-//        if (multiple) { // Since 2.6.6 https://github.com/apache/dubbo/issues/3193
-//            registerBeans(registry, DubboConfigConfiguration.Multiple.class);
-//        }
-
     }
 }

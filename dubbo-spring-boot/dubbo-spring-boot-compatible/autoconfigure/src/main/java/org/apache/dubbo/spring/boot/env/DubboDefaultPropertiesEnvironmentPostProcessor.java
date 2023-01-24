@@ -91,7 +91,7 @@ public class DubboDefaultPropertiesEnvironmentPostProcessor implements Environme
     }
 
     private void setDubboApplicationQosEnableProperty(Map<String, Object> defaultProperties) {
-        defaultProperties.put(DUBBO_APPLICATION_QOS_ENABLE_PROPERTY, Boolean.FALSE.toString());
+        defaultProperties.put(DUBBO_APPLICATION_QOS_ENABLE_PROPERTY, Boolean.TRUE.toString());
     }
 
     /**
@@ -119,9 +119,10 @@ public class DubboDefaultPropertiesEnvironmentPostProcessor implements Environme
             PropertySource<?> source = propertySources.get(PROPERTY_SOURCE_NAME);
             if (source instanceof MapPropertySource) {
                 target = (MapPropertySource) source;
-                for (String key : map.keySet()) {
+                for (Map.Entry<String,Object> entry : map.entrySet()) {
+                    String key = entry.getKey();
                     if (!target.containsProperty(key)) {
-                        target.getSource().put(key, map.get(key));
+                        target.getSource().put(key, entry.getValue());
                     }
                 }
             }

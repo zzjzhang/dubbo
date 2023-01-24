@@ -23,6 +23,7 @@ import org.apache.dubbo.rpc.Exporter;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Protocol;
 import org.apache.dubbo.rpc.ProxyFactory;
+import org.apache.dubbo.rpc.model.FrameworkModel;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <code>ProxiesTest</code>
  */
 
-public class InjvmProtocolTest {
+class InjvmProtocolTest {
 
 
     private final Protocol protocol = ExtensionLoader.getExtensionLoader(Protocol.class).getAdaptiveExtension();
@@ -65,7 +66,7 @@ public class InjvmProtocolTest {
     }
 
     @Test
-    public void testLocalProtocol() throws Exception {
+    void testLocalProtocol() throws Exception {
         DemoService service = new DemoServiceImpl();
         Invoker<?> invoker = proxy.getInvoker(service, DemoService.class, URL.valueOf("injvm://127.0.0.1/TestService").addParameter(INTERFACE_KEY, DemoService.class.getName()));
         assertTrue(invoker.isAvailable());
@@ -81,7 +82,7 @@ public class InjvmProtocolTest {
     }
 
     @Test
-    public void testLocalProtocolWithToken() throws Exception {
+    void testLocalProtocolWithToken() throws Exception {
         DemoService service = new DemoServiceImpl();
         Invoker<?> invoker = proxy.getInvoker(service, DemoService.class, URL.valueOf("injvm://127.0.0.1/TestService?token=abc").addParameter(INTERFACE_KEY, DemoService.class.getName()));
         assertTrue(invoker.isAvailable());
@@ -92,7 +93,7 @@ public class InjvmProtocolTest {
     }
 
     @Test
-    public void testIsInjvmRefer() throws Exception {
+    void testIsInjvmRefer() throws Exception {
         DemoService service = new DemoServiceImpl();
         URL url = URL.valueOf("injvm://127.0.0.1/TestService")
             .addParameter(INTERFACE_KEY, DemoService.class.getName());
@@ -100,30 +101,30 @@ public class InjvmProtocolTest {
         exporters.add(exporter);
 
         url = url.setProtocol("dubbo");
-        assertTrue(InjvmProtocol.getInjvmProtocol().isInjvmRefer(url));
+        assertTrue(InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel()).isInjvmRefer(url));
 
         url = url.addParameter(GROUP_KEY, "*")
             .addParameter(VERSION_KEY, "*");
-        assertTrue(InjvmProtocol.getInjvmProtocol().isInjvmRefer(url));
+        assertTrue(InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel()).isInjvmRefer(url));
 
         url = URL.valueOf("fake://127.0.0.1/TestService").addParameter(SCOPE_KEY, SCOPE_LOCAL);
-        assertTrue(InjvmProtocol.getInjvmProtocol().isInjvmRefer(url));
+        assertTrue(InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel()).isInjvmRefer(url));
 
         url = URL.valueOf("fake://127.0.0.1/TestService").addParameter(LOCAL_PROTOCOL, true);
-        assertTrue(InjvmProtocol.getInjvmProtocol().isInjvmRefer(url));
+        assertTrue(InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel()).isInjvmRefer(url));
 
         url = URL.valueOf("fake://127.0.0.1/TestService").addParameter(SCOPE_KEY, SCOPE_REMOTE);
-        assertFalse(InjvmProtocol.getInjvmProtocol().isInjvmRefer(url));
+        assertFalse(InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel()).isInjvmRefer(url));
 
         url = URL.valueOf("fake://127.0.0.1/TestService").addParameter(GENERIC_KEY, true);
-        assertFalse(InjvmProtocol.getInjvmProtocol().isInjvmRefer(url));
+        assertFalse(InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel()).isInjvmRefer(url));
 
         url = URL.valueOf("fake://127.0.0.1/TestService").addParameter("cluster", "broadcast");
-        assertFalse(InjvmProtocol.getInjvmProtocol().isInjvmRefer(url));
+        assertFalse(InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel()).isInjvmRefer(url));
     }
 
     @Test
-    public void testLocalProtocolAsync() throws Exception {
+    void testLocalProtocolAsync() throws Exception {
         DemoService service = new DemoServiceImpl();
         URL url = URL.valueOf("injvm://127.0.0.1/TestService")
             .addParameter(ASYNC_KEY, true)

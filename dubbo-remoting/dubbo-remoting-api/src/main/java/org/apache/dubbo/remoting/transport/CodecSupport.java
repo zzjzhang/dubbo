@@ -19,45 +19,52 @@ package org.apache.dubbo.remoting.transport;
 
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionLoader;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.serialize.ObjectInput;
 import org.apache.dubbo.common.serialize.ObjectOutput;
 import org.apache.dubbo.common.serialize.Serialization;
 import org.apache.dubbo.common.utils.CollectionUtils;
-import org.apache.dubbo.common.utils.StringUtils;
-import org.apache.dubbo.remoting.Constants;
-import org.apache.dubbo.rpc.model.ApplicationModel;
-import org.apache.dubbo.rpc.model.ServiceRepository;
+import org.apache.dubbo.common.utils.ConcurrentHashMapUtils;
+import org.apache.dubbo.remoting.utils.UrlUtils;
+import org.apache.dubbo.rpc.model.FrameworkModel;
+import org.apache.dubbo.rpc.model.FrameworkServiceRepository;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import static org.apache.dubbo.common.BaseServiceMetadata.keyWithoutGroup;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.TRANSPORT_FAILED_SERIALIZATION;
 
 public class CodecSupport {
-    private static final Logger logger = LoggerFactory.getLogger(CodecSupport.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(CodecSupport.class);
     private static Map<Byte, Serialization> ID_SERIALIZATION_MAP = new HashMap<Byte, Serialization>();
     private static Map<Byte, String> ID_SERIALIZATIONNAME_MAP = new HashMap<Byte, String>();
     private static Map<String, Byte> SERIALIZATIONNAME_ID_MAP = new HashMap<String, Byte>();
     // Cache null object serialize results, for heartbeat request/response serialize use.
-    private static Map<Byte, byte[]> ID_NULLBYTES_MAP = new HashMap<Byte, byte[]>();
+    private static ConcurrentMap<Byte, byte[]> ID_NULLBYTES_MAP = new ConcurrentHashMap<>();
 
     private static final ThreadLocal<byte[]> TL_BUFFER = ThreadLocal.withInitial(() -> new byte[1024]);
 
     static {
-        Set<String> supportedExtensions = ExtensionLoader.getExtensionLoader(Serialization.class).getSupportedExtensions();
+        ExtensionLoader<Serialization> extensionLoader = FrameworkModel.defaultModel().getExtensionLoader(Serialization.class);
+        Set<String> supportedExtensions = extensionLoader.getSupportedExtensions();
         for (String name : supportedExtensions) {
-            Serialization serialization = ExtensionLoader.getExtensionLoader(Serialization.class).getExtension(name);
+            Serialization serialization = extensionLoader.getExtension(name);
             byte idByte = serialization.getContentTypeId();
             if (ID_SERIALIZATION_MAP.containsKey(idByte)) {
-                logger.error("Serialization extension " + serialization.getClass().getName()
-                        + " has duplicate id to Serialization extension "
-                        + ID_SERIALIZATION_MAP.get(idByte).getClass().getName()
-                        + ", ignore this Serialization extension");
+                logger.error(TRANSPORT_FAILED_SERIALIZATION, "", "", "Serialization extension " + serialization.getClass().getName()
+                    + " has duplicate id to Serialization extension "
+                    + ID_SERIALIZATION_MAP.get(idByte).getClass().getName()
+                    + ", ignore this Serialization extension");
                 continue;
             }
             ID_SERIALIZATION_MAP.put(idByte, serialization);
@@ -78,11 +85,10 @@ public class CodecSupport {
     }
 
     public static Serialization getSerialization(URL url) {
-        return ExtensionLoader.getExtensionLoader(Serialization.class).getExtension(
-                url.getParameter(Constants.SERIALIZATION_KEY, Constants.DEFAULT_REMOTING_SERIALIZATION));
+        return url.getOrDefaultFrameworkModel().getExtensionLoader(Serialization.class).getExtension(UrlUtils.serializationOrDefault(url));
     }
 
-    public static Serialization getSerialization(URL url, Byte id) throws IOException {
+    public static Serialization getSerialization(Byte id) throws IOException {
         Serialization result = getSerializationById(id);
         if (result == null) {
             throw new IOException("Unrecognized serialize type from consumer: " + id);
@@ -91,7 +97,7 @@ public class CodecSupport {
     }
 
     public static ObjectInput deserialize(URL url, InputStream is, byte proto) throws IOException {
-        Serialization s = getSerialization(url, proto);
+        Serialization s = getSerialization(proto);
         return s.deserialize(url, is);
     }
 
@@ -103,7 +109,7 @@ public class CodecSupport {
      * @return serialize result of null object
      */
     public static byte[] getNullBytesOf(Serialization s) {
-        return ID_NULLBYTES_MAP.computeIfAbsent(s.getContentTypeId(), k -> {
+        return ConcurrentHashMapUtils.computeIfAbsent(ID_NULLBYTES_MAP, s.getContentTypeId(), k -> {
             //Pre-generated Null object bytes
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             byte[] nullBytes = new byte[0];
@@ -114,7 +120,7 @@ public class CodecSupport {
                 nullBytes = baos.toByteArray();
                 baos.close();
             } catch (Exception e) {
-                logger.warn("Serialization extension " + s.getClass().getName() + " not support serializing null object, return an empty bytes instead.");
+                logger.warn(TRANSPORT_FAILED_SERIALIZATION, "", "", "Serialization extension " + s.getClass().getName() + " not support serializing null object, return an empty bytes instead.");
             }
             return nullBytes;
         });
@@ -157,32 +163,34 @@ public class CodecSupport {
         return Arrays.equals(payload, getNullBytesOf(getSerializationById(proto)));
     }
 
-    public static void checkSerialization(String path, String version, Byte id) throws IOException {
-        // TODO: fetch from FrameworkModel
-        ServiceRepository repository = ApplicationModel.defaultModel().getApplicationServiceRepository();
-        Set<URL> urls = repository.lookupRegisteredProviderUrlsWithoutGroup(keyWithoutGroup(path, version));
+    public static void checkSerialization(FrameworkServiceRepository serviceRepository, String path, String version, Byte id) throws IOException {
+        List<URL> urls = serviceRepository.lookupRegisteredProviderUrlsWithoutGroup(keyWithoutGroup(path, version));
         if (CollectionUtils.isEmpty(urls)) {
             throw new IOException("Service " + path + " with version " + version + " not found, invocation rejected.");
         } else {
-            boolean match = false;
-            for (URL url : urls) {
-                String serializationName = url.getParameter(org.apache.dubbo.remoting.Constants.SERIALIZATION_KEY, Constants.DEFAULT_REMOTING_SERIALIZATION);
-                Byte localId = SERIALIZATIONNAME_ID_MAP.get(serializationName);
-                if (localId != null && localId.equals(id)) {
-                    match = true;
-                }
-            }
-            if(!match) {
+            boolean match = urls.stream().anyMatch(url -> isMatch(url, id));
+            if (!match) {
                 throw new IOException("Unexpected serialization id:" + id + " received from network, please check if the peer send the right id.");
             }
         }
 
     }
 
-    private static String keyWithoutGroup(String interfaceName, String version) {
-        if (StringUtils.isEmpty(version)) {
-            return interfaceName + ":0.0.0";
+    /**
+     * Is Match
+     *
+     * @param url url
+     * @param id  id
+     * @return boolean
+     */
+    private static boolean isMatch(URL url, Byte id) {
+        Byte localId;
+        for (String serialization : UrlUtils.allSerializations(url)) {
+            localId = SERIALIZATIONNAME_ID_MAP.get(serialization);
+            if (id.equals(localId)) {
+                return true;
+            }
         }
-        return interfaceName + ":" + version;
+        return false;
     }
 }

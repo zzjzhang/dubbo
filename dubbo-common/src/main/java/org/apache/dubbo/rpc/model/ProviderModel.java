@@ -17,7 +17,6 @@
 package org.apache.dubbo.rpc.model;
 
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.config.ServiceConfigBase;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -26,47 +25,54 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * ProviderModel is about published services
  */
 public class ProviderModel extends ServiceModel {
     private final List<RegisterStatedURL> urls;
-    private final Map<String, List<ProviderMethodModel>> methods = new HashMap<String, List<ProviderMethodModel>>();
+    private final Map<String, List<ProviderMethodModel>> methods = new HashMap<>();
+
+    /**
+     * The url of the reference service
+     */
+    private List<URL> serviceUrls = new ArrayList<>();
 
     public ProviderModel(String serviceKey,
                          Object serviceInstance,
-                         ServiceDescriptor serviceModel,
-                         ServiceConfigBase<?> serviceConfig) {
-        super(serviceInstance, serviceKey, serviceModel, serviceConfig);
+                         ServiceDescriptor serviceDescriptor,
+                         ClassLoader interfaceClassLoader) {
+        super(serviceInstance, serviceKey, serviceDescriptor, null, interfaceClassLoader);
         if (null == serviceInstance) {
             throw new IllegalArgumentException("Service[" + serviceKey + "]Target is NULL.");
         }
 
+        this.urls = new CopyOnWriteArrayList<>();
+    }
+
+    public ProviderModel(String serviceKey,
+                         Object serviceInstance,
+                         ServiceDescriptor serviceDescriptor,
+                         ServiceMetadata serviceMetadata,
+                         ClassLoader interfaceClassLoader) {
+        super(serviceInstance, serviceKey, serviceDescriptor, null, serviceMetadata, interfaceClassLoader);
+        if (null == serviceInstance) {
+            throw new IllegalArgumentException("Service[" + serviceKey + "]Target is NULL.");
+        }
+
+        initMethod(serviceDescriptor.getServiceInterfaceClass());
         this.urls = new ArrayList<>(1);
     }
 
     public ProviderModel(String serviceKey,
                          Object serviceInstance,
                          ServiceDescriptor serviceModel,
-                         ServiceConfigBase<?> serviceConfig,
-                         ServiceMetadata serviceMetadata) {
-        super(serviceInstance, serviceKey, serviceModel, serviceConfig, serviceMetadata);
-        if (null == serviceInstance) {
-            throw new IllegalArgumentException("Service[" + serviceKey + "]Target is NULL.");
-        }
-
-        initMethod(serviceModel.getServiceInterfaceClass());
-        this.urls = new ArrayList<>(1);
-    }
-
-    public ProviderModel(String serviceKey,
-                         Object serviceInstance,
-                         ServiceDescriptor serviceModel,
-                         ServiceConfigBase<?> serviceConfig,
                          ModuleModel moduleModel,
-                         ServiceMetadata serviceMetadata) {
-        super(serviceInstance, serviceKey, serviceModel, serviceConfig, moduleModel, serviceMetadata);
+                         ServiceMetadata serviceMetadata,
+                         ClassLoader interfaceClassLoader) {
+        super(serviceInstance, serviceKey, serviceModel, moduleModel, serviceMetadata, interfaceClassLoader);
         if (null == serviceInstance) {
             throw new IllegalArgumentException("Service[" + serviceKey + "]Target is NULL.");
         }
@@ -151,19 +157,42 @@ public class ProviderModel extends ServiceModel {
     }
 
     private void initMethod(Class<?> serviceInterfaceClass) {
-        Method[] methodsToExport;
-        methodsToExport = serviceInterfaceClass.getMethods();
+        Method[] methodsToExport = serviceInterfaceClass.getMethods();
 
         for (Method method : methodsToExport) {
             method.setAccessible(true);
 
-            List<ProviderMethodModel> methodModels = methods.get(method.getName());
-            if (methodModels == null) {
-                methodModels = new ArrayList<ProviderMethodModel>();
-                methods.put(method.getName(), methodModels);
-            }
+            List<ProviderMethodModel> methodModels = methods.computeIfAbsent(method.getName(), k -> new ArrayList<>());
             methodModels.add(new ProviderMethodModel(method));
         }
     }
 
+    public List<URL> getServiceUrls() {
+        return serviceUrls;
+    }
+
+    public void setServiceUrls(List<URL> urls) {
+        this.serviceUrls = urls;
+    }
+
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        ProviderModel that = (ProviderModel) o;
+        return Objects.equals(urls, that.urls) && Objects.equals(methods, that.methods);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), urls, methods);
+    }
 }

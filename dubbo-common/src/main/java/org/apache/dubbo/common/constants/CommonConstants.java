@@ -17,12 +17,12 @@
 
 package org.apache.dubbo.common.constants;
 
-import org.apache.dubbo.common.URL;
-
 import java.net.NetworkInterface;
 import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.regex.Pattern;
+
+import org.apache.dubbo.common.URL;
 
 public interface CommonConstants {
     String DUBBO = "dubbo";
@@ -41,6 +41,12 @@ public interface CommonConstants {
 
     String METADATA_SERVICE_PORT_KEY = "metadata-service-port";
 
+    String METADATA_SERVICE_PROTOCOL_KEY = "metadata-service-protocol";
+
+    String METRICS_SERVICE_PORT_KEY = "metrics-service-port";
+
+    String METRICS_SERVICE_PROTOCOL_KEY = "metrics-service-protocol";
+
     String LIVENESS_PROBE_KEY = "liveness-probe";
 
     String READINESS_PROBE_KEY = "readiness-probe";
@@ -58,6 +64,8 @@ public interface CommonConstants {
     String DEFAULT_DUBBO_PROPERTIES = "dubbo.properties";
 
     String DUBBO_MIGRATION_KEY = "dubbo.migration.file";
+
+    String DUBBO_MIGRATION_FILE_ENABLE = "dubbo.migration-file.enable";
 
     String DEFAULT_DUBBO_MIGRATION_FILE = "dubbo-migration.yaml";
 
@@ -108,11 +116,17 @@ public interface CommonConstants {
 
     String EXECUTOR_SERVICE_COMPONENT_KEY = ExecutorService.class.getName();
 
+    String CONSUMER_SHARED_EXECUTOR_SERVICE_COMPONENT_KEY = "CONSUMER_SHARED_SERVICE_EXECUTOR";
+
+    String INTERNAL_EXECUTOR_SERVICE_COMPONENT_KEY = "INTERNAL_SERVICE_EXECUTOR";
+
     String THREADPOOL_KEY = "threadpool";
 
     String THREAD_NAME_KEY = "threadname";
 
     String CORE_THREADS_KEY = "corethreads";
+
+    String THREAD_POOL_EXHAUSTED_LISTENERS_KEY = "thread-pool-exhausted-listeners";
 
     String THREADS_KEY = "threads";
 
@@ -135,6 +149,8 @@ public interface CommonConstants {
     String TIMEOUT_KEY = "timeout";
 
     int DEFAULT_TIMEOUT = 1000;
+
+    String SESSION_KEY = "session";
 
     // used by invocation attachments to transfer timeout from Consumer to Provider.
     // works as a replacement of TIMEOUT_KEY on wire, which seems to be totally useless in previous releases).
@@ -205,6 +221,8 @@ public interface CommonConstants {
 
     String DUMP_DIRECTORY = "dump.directory";
 
+    String DUMP_ENABLE = "dump.enable";
+
     String CLASSIFIER_KEY = "classifier";
 
     String VERSION_KEY = "version";
@@ -213,9 +231,9 @@ public interface CommonConstants {
 
     String METADATA_KEY = "metadata-type";
 
-    String CONFIG_MAPPING_TYPE = "config";
+    String REPORT_METADATA_KEY = "report-metadata";
 
-    String METADATA_MAPPING_TYPE = "metadata";
+    String REPORT_DEFINITION_KEY = "report-definition";
 
     String DEFAULT_METADATA_STORAGE_TYPE = "local";
 
@@ -304,6 +322,8 @@ public interface CommonConstants {
 
     String INVOKER_LISTENER_KEY = "invoker.listener";
 
+    String REGISTRY_PROTOCOL_LISTENER_KEY = "registry.protocol.listener";
+
     String DUBBO_VERSION_KEY = "dubbo";
 
     String TAG_KEY = "dubbo.tag";
@@ -320,10 +340,6 @@ public interface CommonConstants {
     String SERVICE_FILTER_KEY = "service.filter";
 
     String EXPORTER_LISTENER_KEY = "exporter.listener";
-
-    String METRICS_PORT = "metrics.port";
-
-    String METRICS_PROTOCOL = "metrics.protocol";
 
     /**
      * After simplify the registry, should add some parameter individually for provider.
@@ -351,6 +367,13 @@ public interface CommonConstants {
      */
     String REGISTRY_LOCAL_FILE_CACHE_ENABLED = "file.cache";
 
+    String METADATA_INFO_CACHE_EXPIRE_KEY = "metadata-info-cache.expire";
+
+    int DEFAULT_METADATA_INFO_CACHE_EXPIRE = 10 * 60 * 1000;
+
+    String METADATA_INFO_CACHE_SIZE_KEY = "metadata-info-cache.size";
+
+    int DEFAULT_METADATA_INFO_CACHE_SIZE = 16;
 
     /**
      * The limit of callback service instances for one interface on every client
@@ -376,8 +399,6 @@ public interface CommonConstants {
 
     int DEFAULT_FAILBACK_TIMES = 3;
 
-    String REGISTER_KEY = "register";
-
     String INTERFACES = "interfaces";
 
     String SSL_ENABLED_KEY = "ssl-enabled";
@@ -387,6 +408,8 @@ public interface CommonConstants {
     String PROTOCOL_SERVER_SERVLET = "servlet";
 
     String PROTOCOL_SERVER = "server";
+
+    String IPV6_KEY = "ipv6";
 
     /**
      * The parameter key for the class path of the ServiceNameMapping {@link Properties} file
@@ -412,6 +435,10 @@ public interface CommonConstants {
 
     String SERIALIZE_BLOCKED_LIST_FILE_PATH = "security/serialize.blockedlist";
 
+    String SERIALIZE_ALLOW_LIST_FILE_PATH = "security/serialize.allowlist";
+
+    String SERIALIZE_CHECK_STATUS_KEY = "dubbo.application.serialize-check-status";
+
     String QOS_LIVE_PROBE_EXTENSION = "dubbo.application.liveness-probe";
 
     String QOS_READY_PROBE_EXTENSION = "dubbo.application.readiness-probe";
@@ -434,6 +461,10 @@ public interface CommonConstants {
 
     String DEFAULT_VERSION = "0.0.0";
 
+    String CLASS_DESERIALIZE_OPEN_CHECK = "dubbo.security.serialize.openCheckClass";
+
+    String ROUTER_KEY = "router";
+
     String EXPORT_ASYNC_KEY = "export-async";
 
     String REFER_ASYNC_KEY = "refer-async";
@@ -449,6 +480,10 @@ public interface CommonConstants {
     int DEFAULT_EXPORT_THREAD_NUM = 10;
 
     int DEFAULT_REFER_THREAD_NUM = 10;
+
+    int DEFAULT_DELAY_NOTIFICATION_TIME = 5000;
+
+    int DEFAULT_DELAY_EXECUTE_TIMES = 10;
 
     /**
      * Url merge processor key
@@ -476,4 +511,110 @@ public interface CommonConstants {
      */
     String DUBBO_NETWORK_IGNORED_INTERFACE = "dubbo.network.interface.ignored";
 
+    String OS_NAME_KEY = "os.name";
+
+    String OS_LINUX_PREFIX = "linux";
+
+    String OS_WIN_PREFIX = "win";
+
+    String RECONNECT_TASK_TRY_COUNT = "dubbo.reconnect.reconnectTaskTryCount";
+
+    int DEFAULT_RECONNECT_TASK_TRY_COUNT = 10;
+
+    String RECONNECT_TASK_PERIOD = "dubbo.reconnect.reconnectTaskPeriod";
+
+    int DEFAULT_RECONNECT_TASK_PERIOD = 1000;
+
+    String RESELECT_COUNT = "dubbo.reselect.count";
+
+    int DEFAULT_RESELECT_COUNT = 10;
+
+    String ENABLE_CONNECTIVITY_VALIDATION = "dubbo.connectivity.validation";
+
+    String DUBBO_INTERNAL_APPLICATION = "DUBBO_INTERNAL_APPLICATION";
+
+    String RETRY_TIMES_KEY = "retry-times";
+
+    String RETRY_PERIOD_KEY = "retry-period";
+
+    String SYNC_REPORT_KEY = "sync-report";
+
+    String CYCLE_REPORT_KEY = "cycle-report";
+
+    String WORKING_CLASSLOADER_KEY = "WORKING_CLASSLOADER";
+
+    String STAGED_CLASSLOADER_KEY = "STAGED_CLASSLOADER";
+
+    String PROVIDER_ASYNC_KEY = "PROVIDER_ASYNC";
+
+    String REGISTER_IP_KEY = "register.ip";
+
+    String CURRENT_CLUSTER_INVOKER_KEY = "currentClusterInvoker";
+
+    String ENABLE_ROUTER_SNAPSHOT_PRINT_KEY = "ENABLE_ROUTER_SNAPSHOT_PRINT";
+
+    String INJVM_COPY_UTIL_KEY = "injvm-copy-util";
+
+    String INJVM_IGNORE_SAME_MODULE_KEY = "injvm.ignore.same-module";
+
+    String SET_FUTURE_IN_SYNC_MODE = "future.sync.set";
+
+    String CLEAR_FUTURE_AFTER_GET = "future.clear.once";
+
+    String NATIVE_STUB = "nativestub";
+
+    String METADATA = "metadata";
+
+    String IGNORE_LISTEN_SHUTDOWN_HOOK = "dubbo.shutdownHook.listenIgnore";
+
+    String OPTIMIZER_KEY = "optimizer";
+
+    String PREFER_JSON_FRAMEWORK_NAME = "dubbo.json-framework.prefer";
+
+    /**
+     * @since 3.1.0
+     */
+    String MESH_ENABLE = "mesh-enable";
+
+    /**
+     * @since 3.1.0
+     */
+    Integer DEFAULT_MESH_PORT = 80;
+
+    /**
+     * @since 3.1.0
+     */
+    String SVC = ".svc.";
+
+    /**
+     * Domain name suffix used inside k8s.
+     *
+     * @since 3.1.0
+     */
+    String DEFAULT_CLUSTER_DOMAIN = "cluster.local";
+
+    /**
+     * @since 3.1.0
+     */
+    String UNLOAD_CLUSTER_RELATED = "unloadClusterRelated";
+
+    /**
+     * used for thread isolation between services
+     */
+    String SERVICE_EXECUTOR = "service-executor";
+    String EXECUTOR_MANAGEMENT_MODE = "executor-management-mode";
+    String EXECUTOR_MANAGEMENT_MODE_DEFAULT = "default";
+    String EXECUTOR_MANAGEMENT_MODE_ISOLATION = "isolation";
+
+
+    /**
+     *
+     * used in JVMUtil.java ,Control stack print lines, default is 32 lines
+     *
+     */
+    String DUBBO_JSTACK_MAXLINE = "dubbo.jstack-dump.max-line";
+
+
+    String ENCODE_IN_IO_THREAD_KEY = "encode.in.io";
+    boolean DEFAULT_ENCODE_IN_IO_THREAD = false;
 }

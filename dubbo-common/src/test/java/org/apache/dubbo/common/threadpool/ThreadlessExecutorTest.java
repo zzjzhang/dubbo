@@ -17,28 +17,22 @@
 package org.apache.dubbo.common.threadpool;
 
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.extension.ExtensionLoader;
-import org.apache.dubbo.common.threadpool.manager.ExecutorRepository;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
 
-public class ThreadlessExecutorTest {
+class ThreadlessExecutorTest {
     private static ThreadlessExecutor executor;
 
     static {
         URL url = URL.valueOf("dubbo://127.0.0.1:12345");
-        ExecutorService sharedExecutor =
-                ExtensionLoader.getExtensionLoader(ExecutorRepository.class)
-                        .getDefaultExtension().createExecutorIfAbsent(url);
-        executor = new ThreadlessExecutor(sharedExecutor);
+        executor = new ThreadlessExecutor();
     }
 
     @Test
-    public void test() throws InterruptedException {
+    void test() throws InterruptedException {
         for (int i = 0; i < 10; i++) {
             executor.execute(()->{throw new RuntimeException("test");});
         }

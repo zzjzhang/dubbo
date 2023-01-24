@@ -23,19 +23,19 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class DoubleMatchTest {
+class DoubleMatchTest {
 
     @Test
-    public void exactMatch() {
+    void exactMatch() {
         DoubleMatch doubleMatch = new DoubleMatch();
         doubleMatch.setExact(10.0);
 
-        assertTrue(DoubleMatch.isMatch(doubleMatch, 10.0));
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 9.0));
+        assertTrue(doubleMatch.isMatch(10.0));
+        assertFalse(doubleMatch.isMatch(9.0));
     }
 
     @Test
-    public void rangeStartMatch() {
+    void rangeStartMatch() {
         DoubleMatch doubleMatch = new DoubleMatch();
 
         DoubleRangeMatch doubleRangeMatch = new DoubleRangeMatch();
@@ -43,13 +43,13 @@ public class DoubleMatchTest {
 
         doubleMatch.setRange(doubleRangeMatch);
 
-        assertTrue(DoubleMatch.isMatch(doubleMatch, 10.0));
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 9.0));
+        assertTrue(doubleMatch.isMatch(10.0));
+        assertFalse(doubleMatch.isMatch(9.0));
     }
 
 
     @Test
-    public void rangeEndMatch() {
+    void rangeEndMatch() {
         DoubleMatch doubleMatch = new DoubleMatch();
 
         DoubleRangeMatch doubleRangeMatch = new DoubleRangeMatch();
@@ -57,13 +57,13 @@ public class DoubleMatchTest {
 
         doubleMatch.setRange(doubleRangeMatch);
 
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 10.0));
-        assertTrue(DoubleMatch.isMatch(doubleMatch, 9.0));
+        assertFalse(doubleMatch.isMatch(10.0));
+        assertTrue(doubleMatch.isMatch(9.0));
     }
 
 
     @Test
-    public void rangeStartEndMatch() {
+    void rangeStartEndMatch() {
         DoubleMatch doubleMatch = new DoubleMatch();
 
         DoubleRangeMatch doubleRangeMatch = new DoubleRangeMatch();
@@ -72,30 +72,30 @@ public class DoubleMatchTest {
 
         doubleMatch.setRange(doubleRangeMatch);
 
-        assertTrue(DoubleMatch.isMatch(doubleMatch, 5.0));
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 10.0));
+        assertTrue(doubleMatch.isMatch(5.0));
+        assertFalse(doubleMatch.isMatch(10.0));
 
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 4.9));
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 10.1));
+        assertFalse(doubleMatch.isMatch(4.9));
+        assertFalse(doubleMatch.isMatch(10.1));
 
-        assertTrue(DoubleMatch.isMatch(doubleMatch, 6.0));
+        assertTrue(doubleMatch.isMatch(6.0));
 
     }
 
     @Test
-    public void modMatch() {
+    void modMatch() {
         DoubleMatch doubleMatch = new DoubleMatch();
 
         doubleMatch.setMod(2.0);
         doubleMatch.setExact(3.0);
 
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 3.0));
+        assertFalse(doubleMatch.isMatch(3.0));
 
         doubleMatch.setExact(1.0);
 
-        assertTrue(DoubleMatch.isMatch(doubleMatch, 1.0));
-        assertFalse(DoubleMatch.isMatch(doubleMatch, 2.0));
-        assertTrue(DoubleMatch.isMatch(doubleMatch, 3.0));
+        assertTrue(doubleMatch.isMatch(1.0));
+        assertFalse(doubleMatch.isMatch(2.0));
+        assertTrue(doubleMatch.isMatch(3.0));
     }
 
 }

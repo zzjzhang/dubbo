@@ -17,13 +17,13 @@
 package org.apache.dubbo.rpc.protocol.rest;
 
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.utils.ConcurrentHashMapUtils;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.remoting.http.HttpBinder;
 import org.apache.dubbo.remoting.http.servlet.BootstrapListener;
 import org.apache.dubbo.remoting.http.servlet.ServletManager;
 import org.apache.dubbo.rpc.ProtocolServer;
 import org.apache.dubbo.rpc.RpcException;
-import org.apache.dubbo.rpc.model.ApplicationModel;
 import org.apache.dubbo.rpc.protocol.AbstractProxyProtocol;
 
 import org.apache.http.HeaderElement;
@@ -44,16 +44,17 @@ import org.jboss.resteasy.util.GetRestful;
 import javax.servlet.ServletContext;
 import javax.ws.rs.ProcessingException;
 import javax.ws.rs.WebApplicationException;
-import java.util.Collections;
-import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
 import static org.apache.dubbo.common.constants.CommonConstants.COMMA_SPLIT_PATTERN;
 import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_TIMEOUT;
 import static org.apache.dubbo.common.constants.CommonConstants.INTERFACE_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.TIMEOUT_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_ERROR_CLOSE_CLIENT;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_ERROR_CLOSE_SERVER;
 import static org.apache.dubbo.remoting.Constants.CONNECTIONS_KEY;
 import static org.apache.dubbo.remoting.Constants.CONNECT_TIMEOUT_KEY;
 import static org.apache.dubbo.remoting.Constants.DEFAULT_CONNECT_TIMEOUT;
@@ -73,8 +74,7 @@ public class RestProtocol extends AbstractProxyProtocol {
 
     private final RestServerFactory serverFactory = new RestServerFactory();
 
-    // TODO in the future maybe we can just use a single rest client and connection manager
-    private final List<ResteasyClient> clients = Collections.synchronizedList(new LinkedList<>());
+    private final ConcurrentMap<String, ReferenceCountedClient> clients = new ConcurrentHashMap<>();
 
     private volatile ConnectionMonitor connectionMonitor;
 
@@ -94,13 +94,8 @@ public class RestProtocol extends AbstractProxyProtocol {
     @Override
     protected <T> Runnable doExport(T impl, Class<T> type, URL url) throws RpcException {
         String addr = getAddr(url);
-        Class implClass;
-        if (url.getScopeModel() != null) {
-            implClass = url.getServiceModel().getProxyObject().getClass();
-        } else {
-            implClass = ApplicationModel.getProviderModel(url.getServiceKey()).getServiceInstance().getClass();
-        }
-        RestProtocolServer server = (RestProtocolServer) serverMap.computeIfAbsent(addr, restServer -> {
+        Class implClass = url.getServiceModel().getProxyObject().getClass();
+        RestProtocolServer server = (RestProtocolServer) ConcurrentHashMapUtils.computeIfAbsent(serverMap, addr, restServer -> {
             RestProtocolServer s = serverFactory.createServer(url.getParameter(SERVER_KEY, DEFAULT_SERVER));
             s.setAddress(url.getAddress());
             s.start(url);
@@ -112,14 +107,14 @@ public class RestProtocol extends AbstractProxyProtocol {
             ServletContext servletContext = ServletManager.getInstance().getServletContext(ServletManager.EXTERNAL_SERVER_PORT);
             if (servletContext == null) {
                 throw new RpcException("No servlet context found. Since you are using server='servlet', " +
-                        "make sure that you've configured " + BootstrapListener.class.getName() + " in web.xml");
+                    "make sure that you've configured " + BootstrapListener.class.getName() + " in web.xml");
             }
             String webappPath = servletContext.getContextPath();
             if (StringUtils.isNotEmpty(webappPath)) {
                 webappPath = webappPath.substring(1);
                 if (!contextPath.startsWith(webappPath)) {
                     throw new RpcException("Since you are using server='servlet', " +
-                            "make sure that the 'contextpath' property starts with the path of external webapp");
+                        "make sure that the 'contextpath' property starts with the path of external webapp");
                 }
                 contextPath = contextPath.substring(webappPath.length());
                 if (contextPath.startsWith("/")) {
@@ -142,56 +137,22 @@ public class RestProtocol extends AbstractProxyProtocol {
 
     @Override
     protected <T> T doRefer(Class<T> serviceType, URL url) throws RpcException {
+        ReferenceCountedClient referenceCountedClient = ConcurrentHashMapUtils.computeIfAbsent(clients, url.getAddress(), _key -> {
+            // TODO more configs to add
+            return createReferenceCountedClient(url);
+        });
 
-        // TODO more configs to add
-        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
-        // 20 is the default maxTotal of current PoolingClientConnectionManager
-        connectionManager.setMaxTotal(url.getParameter(CONNECTIONS_KEY, HTTPCLIENTCONNECTIONMANAGER_MAXTOTAL));
-        connectionManager.setDefaultMaxPerRoute(url.getParameter(CONNECTIONS_KEY, HTTPCLIENTCONNECTIONMANAGER_MAXPERROUTE));
-
-        if (connectionMonitor == null) {
-            connectionMonitor = new ConnectionMonitor();
-            connectionMonitor.start();
+        if (referenceCountedClient.isDestroyed()) {
+            referenceCountedClient = createReferenceCountedClient(url);
+            clients.put(url.getAddress(), referenceCountedClient);
         }
-        connectionMonitor.addConnectionManager(connectionManager);
-        RequestConfig requestConfig = RequestConfig.custom()
-                .setConnectTimeout(url.getParameter(CONNECT_TIMEOUT_KEY, DEFAULT_CONNECT_TIMEOUT))
-                .setSocketTimeout(url.getParameter(TIMEOUT_KEY, DEFAULT_TIMEOUT))
-                .build();
+        referenceCountedClient.retain();
 
-        SocketConfig socketConfig = SocketConfig.custom()
-                .setSoKeepAlive(true)
-                .setTcpNoDelay(true)
-                .build();
-
-        CloseableHttpClient httpClient = HttpClientBuilder.create()
-                .setConnectionManager(connectionManager)
-                .setKeepAliveStrategy((response, context) -> {
-                    HeaderElementIterator it = new BasicHeaderElementIterator(response.headerIterator(HTTP.CONN_KEEP_ALIVE));
-                    while (it.hasNext()) {
-                        HeaderElement he = it.nextElement();
-                        String param = he.getName();
-                        String value = he.getValue();
-                        if (value != null && param.equalsIgnoreCase(TIMEOUT_KEY)) {
-                            return Long.parseLong(value) * 1000;
-                        }
-                    }
-                    return HTTPCLIENT_KEEPALIVEDURATION;
-                })
-                .setDefaultRequestConfig(requestConfig)
-                .setDefaultSocketConfig(socketConfig)
-                .build();
-
-        ApacheHttpClient4Engine engine = new ApacheHttpClient4Engine(httpClient/*, localContext*/);
-
-        ResteasyClient client = new ResteasyClientBuilder().httpEngine(engine).build();
-        clients.add(client);
-
-        client.register(RpcContextFilter.class);
+        ResteasyClient resteasyClient = referenceCountedClient.getClient();
         for (String clazz : COMMA_SPLIT_PATTERN.split(url.getParameter(EXTENSION_KEY, ""))) {
             if (!StringUtils.isEmpty(clazz)) {
                 try {
-                    client.register(Thread.currentThread().getContextClassLoader().loadClass(clazz.trim()));
+                    resteasyClient.register(Thread.currentThread().getContextClassLoader().loadClass(clazz.trim()));
                 } catch (ClassNotFoundException e) {
                     throw new RpcException("Error loading JAX-RS extension class: " + clazz.trim(), e);
                 }
@@ -199,8 +160,54 @@ public class RestProtocol extends AbstractProxyProtocol {
         }
 
         // TODO protocol
-        ResteasyWebTarget target = client.target("http://" + url.getHost() + ":" + url.getPort() + "/" + getContextPath(url));
+        ResteasyWebTarget target = resteasyClient.target("http://" + url.getAddress() + "/" + getContextPath(url));
         return target.proxy(serviceType);
+    }
+
+    private ReferenceCountedClient createReferenceCountedClient(URL url) {
+        PoolingHttpClientConnectionManager connectionManager = new PoolingHttpClientConnectionManager();
+        // 20 is the default maxTotal of current PoolingClientConnectionManager
+        connectionManager.setMaxTotal(url.getParameter(CONNECTIONS_KEY, HTTPCLIENTCONNECTIONMANAGER_MAXTOTAL));
+        connectionManager.setDefaultMaxPerRoute(url.getParameter(CONNECTIONS_KEY, HTTPCLIENTCONNECTIONMANAGER_MAXPERROUTE));
+        if (connectionMonitor == null) {
+            connectionMonitor = new ConnectionMonitor();
+            connectionMonitor.start();
+        }
+        connectionMonitor.addConnectionManager(url.getAddress(), connectionManager);
+
+        RequestConfig requestConfig = RequestConfig.custom()
+            .setConnectTimeout(url.getParameter(CONNECT_TIMEOUT_KEY, DEFAULT_CONNECT_TIMEOUT))
+            .setSocketTimeout(url.getParameter(TIMEOUT_KEY, DEFAULT_TIMEOUT))
+            .build();
+
+        SocketConfig socketConfig = SocketConfig.custom()
+            .setSoKeepAlive(true)
+            .setTcpNoDelay(true)
+            .build();
+
+        CloseableHttpClient httpClient = HttpClientBuilder.create()
+            .setConnectionManager(connectionManager)
+            .setKeepAliveStrategy((response, context) -> {
+                HeaderElementIterator it = new BasicHeaderElementIterator(response.headerIterator(HTTP.CONN_KEEP_ALIVE));
+                while (it.hasNext()) {
+                    HeaderElement he = it.nextElement();
+                    String param = he.getName();
+                    String value = he.getValue();
+                    if (value != null && param.equalsIgnoreCase(TIMEOUT_KEY)) {
+                        return Long.parseLong(value) * 1000;
+                    }
+                }
+                return HTTPCLIENT_KEEPALIVEDURATION;
+            })
+            .setDefaultRequestConfig(requestConfig)
+            .setDefaultSocketConfig(socketConfig)
+            .build();
+
+        ApacheHttpClient4Engine engine = new ApacheHttpClient4Engine(httpClient/*, localContext*/);
+
+        ResteasyClient resteasyClient = new ResteasyClientBuilder().httpEngine(engine).build();
+        resteasyClient.register(RpcContextFilter.class);
+        return new ReferenceCountedClient(resteasyClient);
     }
 
     @Override
@@ -211,6 +218,9 @@ public class RestProtocol extends AbstractProxyProtocol {
 
     @Override
     public void destroy() {
+        if (logger.isInfoEnabled()) {
+            logger.info("Destroying protocol [" + this.getClass().getSimpleName() + "] ...");
+        }
         super.destroy();
 
         if (connectionMonitor != null) {
@@ -224,7 +234,7 @@ public class RestProtocol extends AbstractProxyProtocol {
                 }
                 entry.getValue().close();
             } catch (Throwable t) {
-                logger.warn("Error closing rest server", t);
+                logger.warn(PROTOCOL_ERROR_CLOSE_SERVER, "", "", "Error closing rest server", t);
             }
         }
         serverMap.clear();
@@ -232,20 +242,21 @@ public class RestProtocol extends AbstractProxyProtocol {
         if (logger.isInfoEnabled()) {
             logger.info("Closing rest clients");
         }
-        for (ResteasyClient client : clients) {
+        for (ReferenceCountedClient client : clients.values()) {
             try {
-                client.close();
+                // destroy directly regardless of the current reference count.
+                client.destroy();
             } catch (Throwable t) {
-                logger.warn("Error closing rest client", t);
+                logger.warn(PROTOCOL_ERROR_CLOSE_CLIENT, "", "", "Error closing rest client", t);
             }
         }
         clients.clear();
     }
 
     /**
-     *  getPath() will return: [contextpath + "/" +] path
-     *  1. contextpath is empty if user does not set through ProtocolConfig or ProviderConfig
-     *  2. path will never be empty, it's default value is the interface name.
+     * getPath() will return: [contextpath + "/" +] path
+     * 1. contextpath is empty if user does not set through ProtocolConfig or ProviderConfig
+     * 2. path will never be empty, its default value is the interface name.
      *
      * @return return path only if user has explicitly gave then a value.
      */
@@ -264,12 +275,28 @@ public class RestProtocol extends AbstractProxyProtocol {
         }
     }
 
+    @Override
+    protected void destroyInternal(URL url) {
+        try {
+            ReferenceCountedClient referenceCountedClient = clients.get(url.getAddress());
+            if (referenceCountedClient != null && referenceCountedClient.release()) {
+                clients.remove(url.getAddress());
+                connectionMonitor.destroyManager(url);
+            }
+        } catch (Exception e) {
+            logger.warn(PROTOCOL_ERROR_CLOSE_CLIENT, "", "", "Failed to close unused resources in rest protocol. interfaceName [" + url.getServiceInterface() + "]", e);
+        }
+    }
+
     protected class ConnectionMonitor extends Thread {
         private volatile boolean shutdown;
-        private final List<PoolingHttpClientConnectionManager> connectionManagers = Collections.synchronizedList(new LinkedList<>());
+        /**
+         * The lifecycle of {@code PoolingHttpClientConnectionManager} instance is bond with ReferenceCountedClient
+         */
+        private final Map<String, PoolingHttpClientConnectionManager> connectionManagers = new ConcurrentHashMap<>();
 
-        public void addConnectionManager(PoolingHttpClientConnectionManager connectionManager) {
-            connectionManagers.add(connectionManager);
+        public void addConnectionManager(String address, PoolingHttpClientConnectionManager connectionManager) {
+            connectionManagers.putIfAbsent(address, connectionManager);
         }
 
         @Override
@@ -278,7 +305,7 @@ public class RestProtocol extends AbstractProxyProtocol {
                 while (!shutdown) {
                     synchronized (this) {
                         wait(HTTPCLIENTCONNECTIONMANAGER_CLOSEWAITTIME_MS);
-                        for (PoolingHttpClientConnectionManager connectionManager : connectionManagers) {
+                        for (PoolingHttpClientConnectionManager connectionManager : connectionManagers.values()) {
                             connectionManager.closeExpiredConnections();
                             connectionManager.closeIdleConnections(HTTPCLIENTCONNECTIONMANAGER_CLOSEIDLETIME_S, TimeUnit.SECONDS);
                         }
@@ -294,6 +321,14 @@ public class RestProtocol extends AbstractProxyProtocol {
             connectionManagers.clear();
             synchronized (this) {
                 notifyAll();
+            }
+        }
+
+        // destroy the connection manager of a specific address when ReferenceCountedClient is destroyed.
+        private void destroyManager(URL url) {
+            PoolingHttpClientConnectionManager connectionManager = connectionManagers.remove(url.getAddress());
+            if (connectionManager != null) {
+                connectionManager.close();
             }
         }
     }

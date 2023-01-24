@@ -19,9 +19,10 @@ package org.apache.dubbo.monitor.dubbo;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionAccessor;
 import org.apache.dubbo.common.extension.ExtensionAccessorAware;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.store.DataStore;
+import org.apache.dubbo.common.utils.JsonUtils;
 import org.apache.dubbo.common.utils.NetUtils;
 import org.apache.dubbo.monitor.MetricsService;
 import org.apache.dubbo.rpc.AsyncRpcResult;
@@ -35,7 +36,6 @@ import org.apache.dubbo.rpc.model.ApplicationModel;
 import org.apache.dubbo.rpc.model.ScopeModelAware;
 import org.apache.dubbo.rpc.support.RpcUtils;
 
-import com.alibaba.fastjson.JSON;
 import com.alibaba.metrics.FastCompass;
 import com.alibaba.metrics.MetricLevel;
 import com.alibaba.metrics.MetricManager;
@@ -59,25 +59,32 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_PROTOCOL;
 import static org.apache.dubbo.common.constants.CommonConstants.EXECUTOR_SERVICE_COMPONENT_KEY;
-import static org.apache.dubbo.common.constants.CommonConstants.METRICS_PORT;
-import static org.apache.dubbo.common.constants.CommonConstants.METRICS_PROTOCOL;
+import static org.apache.dubbo.common.constants.CommonConstants.METHOD_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.PROVIDER;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_METRICS_COLLECTOR_EXCEPTION;
 import static org.apache.dubbo.monitor.Constants.DUBBO_CONSUMER;
 import static org.apache.dubbo.monitor.Constants.DUBBO_CONSUMER_METHOD;
 import static org.apache.dubbo.monitor.Constants.DUBBO_GROUP;
 import static org.apache.dubbo.monitor.Constants.DUBBO_PROVIDER;
 import static org.apache.dubbo.monitor.Constants.DUBBO_PROVIDER_METHOD;
-import static org.apache.dubbo.monitor.Constants.METHOD;
 import static org.apache.dubbo.monitor.Constants.SERVICE;
 
+/**
+ * @deprecated After metrics config is refactored.
+ * This filter should no longer use and will be deleted in the future.
+ */
+@Deprecated
 public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModelAware {
 
-    private static final Logger logger = LoggerFactory.getLogger(MetricsFilter.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(MetricsFilter.class);
     protected static volatile AtomicBoolean exported = new AtomicBoolean(false);
     private Integer port;
     private String protocolName;
     private ExtensionAccessor extensionAccessor;
     private ApplicationModel applicationModel;
+
+    private static final String METRICS_PORT = "metrics.port";
+    private static final String METRICS_PROTOCOL = "metrics.protocol";
 
     @Override
     public void setApplicationModel(ApplicationModel applicationModel) {
@@ -88,20 +95,20 @@ public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModel
     public Result invoke(Invoker<?> invoker, Invocation invocation) throws RpcException {
         if (exported.compareAndSet(false, true)) {
             this.protocolName = invoker.getUrl().getParameter(METRICS_PROTOCOL) == null ?
-                    DEFAULT_PROTOCOL : invoker.getUrl().getParameter(METRICS_PROTOCOL);
+                DEFAULT_PROTOCOL : invoker.getUrl().getParameter(METRICS_PROTOCOL);
 
             Protocol protocol = extensionAccessor.getExtensionLoader(Protocol.class).getExtension(protocolName);
 
             this.port = invoker.getUrl().getParameter(METRICS_PORT) == null ?
-                    protocol.getDefaultPort() : Integer.valueOf(invoker.getUrl().getParameter(METRICS_PORT));
+                protocol.getDefaultPort() : Integer.valueOf(invoker.getUrl().getParameter(METRICS_PORT));
 
             Invoker<MetricsService> metricsInvoker = initMetricsInvoker();
 
             try {
                 protocol.export(metricsInvoker);
             } catch (RuntimeException e) {
-                logger.error("Metrics Service need to be configured" +
-                        " when multiple processes are running on a host" + e.getMessage());
+                logger.error(COMMON_METRICS_COLLECTOR_EXCEPTION, "", "", "Metrics Service need to be configured" +
+                    " when multiple processes are running on a host" + e.getMessage());
             }
         }
 
@@ -145,7 +152,7 @@ public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModel
         method.append(')');
         Class<?> returnType = RpcUtils.getReturnType(invocation);
         String typeName = null;
-        if(returnType != null) {
+        if (returnType != null) {
             typeName = returnType.getTypeName();
             typeName = typeName.substring(typeName.lastIndexOf(".") + 1);
         }
@@ -163,7 +170,7 @@ public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModel
             method = new MetricName(DUBBO_PROVIDER_METHOD, new HashMap<String, String>(4) {
                 {
                     put(SERVICE, serviceName);
-                    put(METHOD, methodName);
+                    put(METHOD_KEY, methodName);
                 }
             }, MetricLevel.NORMAL);
         } else {
@@ -171,7 +178,7 @@ public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModel
             method = new MetricName(DUBBO_CONSUMER_METHOD, new HashMap<String, String>(4) {
                 {
                     put(SERVICE, serviceName);
-                    put(METHOD, methodName);
+                    put(METHOD_KEY, methodName);
                 }
             }, MetricLevel.NORMAL);
         }
@@ -212,10 +219,10 @@ public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModel
         }
 
         return new MetricObject
-                .Builder(metric)
-                .withValue(value)
-                .withLevel(level)
-                .build();
+            .Builder(metric)
+            .withValue(value)
+            .withLevel(level)
+            .build();
     }
 
     private Invoker<MetricsService> initMetricsInvoker() {
@@ -238,7 +245,7 @@ public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModel
 
 
                 MetricsCollector collector = MetricsCollectorFactory.createNew(
-                        CollectLevel.NORMAL, Collections.EMPTY_MAP, rateFactor, durationFactor, null);
+                    CollectLevel.NORMAL, Collections.EMPTY_MAP, rateFactor, durationFactor, null);
 
                 for (Map.Entry<MetricName, FastCompass> entry : fastCompasses.entrySet()) {
                     collector.collect(entry.getKey(), entry.getValue(), timestamp);
@@ -246,7 +253,7 @@ public class MetricsFilter implements Filter, ExtensionAccessorAware, ScopeModel
 
                 List res = collector.build();
                 res.addAll(getThreadPoolMessage());
-                return AsyncRpcResult.newDefaultAsyncResult(JSON.toJSONString(res), invocation);
+                return AsyncRpcResult.newDefaultAsyncResult(JsonUtils.getJson().toJson(res), invocation);
             }
 
             @Override

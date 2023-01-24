@@ -19,6 +19,8 @@ package org.apache.dubbo.rpc.cluster.support.registry;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.rpc.AppResponse;
 import org.apache.dubbo.rpc.Invocation;
+import org.apache.dubbo.rpc.RpcContext;
+import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.cluster.ClusterInvoker;
 import org.apache.dubbo.rpc.cluster.Directory;
 
@@ -36,7 +38,7 @@ import static org.apache.dubbo.common.constants.RegistryConstants.ZONE_KEY;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
-public class ZoneAwareClusterInvokerTest {
+class ZoneAwareClusterInvokerTest {
 
     private Directory directory = mock(Directory.class);
     private ClusterInvoker firstInvoker = mock(ClusterInvoker.class);
@@ -53,7 +55,7 @@ public class ZoneAwareClusterInvokerTest {
     String unexpectedValue = "unexpected";
 
     @Test
-    public void testPreferredStrategy() {
+    void testPreferredStrategy() {
         given(invocation.getParameterTypes()).willReturn(new Class<?>[]{});
         given(invocation.getArguments()).willReturn(new Object[]{});
         given(invocation.getObjectAttachments()).willReturn(new HashMap<>());
@@ -94,13 +96,13 @@ public class ZoneAwareClusterInvokerTest {
     }
 
     @Test
-    public void testRegistryZoneStrategy() {
+    void testRegistryZoneStrategy() {
         String zoneKey = "zone";
 
         given(invocation.getParameterTypes()).willReturn(new Class<?>[]{});
         given(invocation.getArguments()).willReturn(new Object[]{});
         given(invocation.getObjectAttachments()).willReturn(new HashMap<>());
-        given(invocation.getAttachment(REGISTRY_ZONE)).willReturn(zoneKey);
+        RpcContext.getClientAttachment().setAttachment(REGISTRY_ZONE, zoneKey);
 
         firstInvoker = newUnexpectedInvoker();
         thirdInvoker = newUnexpectedInvoker();
@@ -138,14 +140,14 @@ public class ZoneAwareClusterInvokerTest {
     }
 
     @Test
-    public void testRegistryZoneForceStrategy() {
+    void testRegistryZoneForceStrategy() {
         String zoneKey = "zone";
 
         given(invocation.getParameterTypes()).willReturn(new Class<?>[]{});
         given(invocation.getArguments()).willReturn(new Object[]{});
         given(invocation.getObjectAttachments()).willReturn(new HashMap<>());
-        given(invocation.getAttachment(REGISTRY_ZONE)).willReturn(zoneKey);
-        given(invocation.getAttachment(REGISTRY_ZONE_FORCE)).willReturn("true");
+        RpcContext.getClientAttachment().setAttachment(REGISTRY_ZONE, zoneKey);
+        RpcContext.getClientAttachment().setAttachment(REGISTRY_ZONE_FORCE, "true");
 
         firstInvoker = newUnexpectedInvoker();
         secondInvoker = newUnexpectedInvoker();
@@ -164,6 +166,18 @@ public class ZoneAwareClusterInvokerTest {
 
         zoneAwareClusterInvoker = new ZoneAwareClusterInvoker<>(directory);
         Assertions.assertThrows(IllegalStateException.class,
+            () -> zoneAwareClusterInvoker.invoke(invocation));
+    }
+
+    @Test
+    public void testNoAvailableInvoker() {
+        given(directory.getUrl()).willReturn(url);
+        given(directory.getConsumerUrl()).willReturn(url);
+        given(directory.list(invocation)).willReturn(new ArrayList<>(0));
+
+        zoneAwareClusterInvoker = new ZoneAwareClusterInvoker<>(directory);
+
+        Assertions.assertThrows(RpcException.class,
             () -> zoneAwareClusterInvoker.invoke(invocation));
     }
 

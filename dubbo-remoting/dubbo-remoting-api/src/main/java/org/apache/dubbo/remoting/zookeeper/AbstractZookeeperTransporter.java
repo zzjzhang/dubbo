@@ -35,14 +35,14 @@ import static org.apache.dubbo.common.constants.CommonConstants.TIMEOUT_KEY;
 /**
  * AbstractZookeeperTransporter is abstract implements of ZookeeperTransporter.
  * <p>
- * If you want to extends this, implements createZookeeperClient.
+ * If you want to extend this, implements createZookeeperClient.
  */
 public abstract class AbstractZookeeperTransporter implements ZookeeperTransporter {
     private static final Logger logger = LoggerFactory.getLogger(ZookeeperTransporter.class);
     private final Map<String, ZookeeperClient> zookeeperClientMap = new ConcurrentHashMap<>();
 
     /**
-     * share connnect for registry, metadata, etc..
+     * share connect for registry, metadata, etc..
      * <p>
      * Make sure the connection is connected.
      *
@@ -90,13 +90,13 @@ public abstract class AbstractZookeeperTransporter implements ZookeeperTransport
      * @return
      */
     public ZookeeperClient fetchAndUpdateZookeeperClientCache(List<String> addressList) {
-
         ZookeeperClient zookeeperClient = null;
         for (String address : addressList) {
             if ((zookeeperClient = zookeeperClientMap.get(address)) != null && zookeeperClient.isConnected()) {
                 break;
             }
         }
+        // mapping new backup address
         if (zookeeperClient != null && zookeeperClient.isConnected()) {
             writeToClientMap(addressList, zookeeperClient);
         }
@@ -104,15 +104,15 @@ public abstract class AbstractZookeeperTransporter implements ZookeeperTransport
     }
 
     /**
-     * get all zookeeper urls (such as :zookeeper://127.0.0.1:2181?127.0.0.1:8989,127.0.0.1:9999)
+     * get all zookeeper urls (such as zookeeper://127.0.0.1:2181?backup=127.0.0.1:8989,127.0.0.1:9999)
      *
-     * @param url such as:zookeeper://127.0.0.1:2181?127.0.0.1:8989,127.0.0.1:9999
+     * @param url such as zookeeper://127.0.0.1:2181?backup=127.0.0.1:8989,127.0.0.1:9999
      * @return such as 127.0.0.1:2181,127.0.0.1:8989,127.0.0.1:9999
      */
     public List<String> getURLBackupAddress(URL url) {
-        List<String> addressList = new ArrayList<String>();
+        List<String> addressList = new ArrayList<>();
         addressList.add(url.getAddress());
-        addressList.addAll(url.getParameter(RemotingConstants.BACKUP_KEY, Collections.EMPTY_LIST));
+        addressList.addAll(url.getParameter(RemotingConstants.BACKUP_KEY, Collections.emptyList()));
 
         String authPrefix = null;
         if (StringUtils.isNotEmpty(url.getUsername())) {
@@ -133,7 +133,6 @@ public abstract class AbstractZookeeperTransporter implements ZookeeperTransport
             }
             return authedAddressList;
         }
-
 
         return addressList;
     }
@@ -177,5 +176,14 @@ public abstract class AbstractZookeeperTransporter implements ZookeeperTransport
      */
     public Map<String, ZookeeperClient> getZookeeperClientMap() {
         return zookeeperClientMap;
+    }
+
+    @Override
+    public void destroy() {
+        // only destroy zk clients here
+        for (ZookeeperClient client : zookeeperClientMap.values()) {
+            client.close();
+        }
+        zookeeperClientMap.clear();
     }
 }

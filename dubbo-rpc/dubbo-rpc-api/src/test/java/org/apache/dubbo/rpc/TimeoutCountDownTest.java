@@ -22,18 +22,20 @@ import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.TimeUnit;
 
-public class TimeoutCountDownTest {
+class TimeoutCountDownTest {
 
     @Test
-    public void testTimeoutCountDown() throws InterruptedException {
+    void testTimeoutCountDown() throws InterruptedException {
         TimeoutCountDown timeoutCountDown = TimeoutCountDown.newCountDown(5, TimeUnit.SECONDS);
         Assertions.assertEquals(5 * 1000, timeoutCountDown.getTimeoutInMilli());
         Assertions.assertFalse(timeoutCountDown.isExpired());
         Assertions.assertTrue(timeoutCountDown.timeRemaining(TimeUnit.SECONDS) > 0);
+        Assertions.assertTrue(timeoutCountDown.elapsedMillis() < TimeUnit.MILLISECONDS.convert(5, TimeUnit.SECONDS));
 
         Thread.sleep(6 * 1000);
 
         Assertions.assertTrue(timeoutCountDown.isExpired());
         Assertions.assertTrue(timeoutCountDown.timeRemaining(TimeUnit.SECONDS) <= 0);
+        Assertions.assertTrue(timeoutCountDown.elapsedMillis() > TimeUnit.MILLISECONDS.convert(5, TimeUnit.SECONDS));
     }
 }

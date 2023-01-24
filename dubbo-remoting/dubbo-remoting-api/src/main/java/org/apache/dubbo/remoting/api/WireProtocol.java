@@ -16,20 +16,20 @@
  */
 package org.apache.dubbo.remoting.api;
 
+import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.extension.ExtensionScope;
 import org.apache.dubbo.common.extension.SPI;
-
-import io.netty.channel.ChannelPipeline;
-import io.netty.handler.ssl.SslContext;
+import org.apache.dubbo.remoting.api.pu.ChannelOperator;
+import org.apache.dubbo.remoting.api.ssl.ContextOperator;
 
 @SPI(scope = ExtensionScope.FRAMEWORK)
 public interface WireProtocol {
 
     ProtocolDetector detector();
 
-    void configServerPipeline(ChannelPipeline pipeline, SslContext sslContext);
+    void configServerProtocolHandler(URL url, ChannelOperator operator);
 
-    void configClientPipeline(ChannelPipeline pipeline, SslContext sslContext);
+    void configClientPipeline(URL url, ChannelOperator operator, ContextOperator contextOperator);
 
     void close();
 }

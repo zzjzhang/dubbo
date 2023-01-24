@@ -18,9 +18,9 @@ package org.apache.dubbo.spring.boot.autoconfigure;
 
 import org.apache.dubbo.config.spring.beans.factory.annotation.ReferenceAnnotationBeanPostProcessor;
 import org.apache.dubbo.config.spring.beans.factory.annotation.ServiceAnnotationPostProcessor;
+import org.apache.dubbo.config.spring.util.DubboBeanUtils;
 
 import com.alibaba.spring.context.config.ConfigurationBeanBinder;
-import org.apache.dubbo.config.spring.util.DubboBeanUtils;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.beans.factory.ObjectProvider;
@@ -52,7 +52,7 @@ import static org.junit.Assert.assertTrue;
 })
 @EnableAutoConfiguration
 @PropertySource(value = "classpath:/dubbo.properties")
-public class DubboRelaxedBinding2AutoConfigurationTest {
+class DubboRelaxedBinding2AutoConfigurationTest {
 
     @Autowired
     @Qualifier(BASE_PACKAGES_BEAN_NAME)
@@ -75,7 +75,7 @@ public class DubboRelaxedBinding2AutoConfigurationTest {
     private ApplicationContext applicationContext;
 
     @Test
-    public void testBeans() {
+    void testBeans() {
 
 
         assertTrue(ClassUtils.isAssignableValue(BinderDubboConfigBinder.class, dubboConfigBinder));

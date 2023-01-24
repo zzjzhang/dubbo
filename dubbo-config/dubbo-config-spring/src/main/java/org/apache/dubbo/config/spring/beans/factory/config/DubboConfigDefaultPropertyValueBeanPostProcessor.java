@@ -17,9 +17,9 @@
 package org.apache.dubbo.config.spring.beans.factory.config;
 
 import org.apache.dubbo.config.AbstractConfig;
+import org.apache.dubbo.config.Constants;
 
 import com.alibaba.spring.beans.factory.config.GenericBeanPostProcessorAdapter;
-import org.apache.dubbo.config.Constants;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.InitDestroyAnnotationBeanPostProcessor;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -52,6 +52,7 @@ public class DubboConfigDefaultPropertyValueBeanPostProcessor extends GenericBea
      */
     public static final String BEAN_NAME = "dubboConfigDefaultPropertyValueBeanPostProcessor";
 
+    @Override
     protected void processBeforeInitialization(AbstractConfig dubboConfigBean, String beanName) throws BeansException {
         // ignore auto generate bean name
         if (!beanName.contains("#")) {
@@ -84,14 +85,14 @@ public class DubboConfigDefaultPropertyValueBeanPostProcessor extends GenericBea
 
             Object propertyValue = invokeMethod(getterMethod, bean);
 
-            if (propertyValue != null) { // If The return value of "getName" method is not null
+            if (propertyValue != null) { // If The return value of "getId" method is not null
                 return;
             }
 
             Method setterMethod = propertyDescriptor.getWriteMethod();
             if (setterMethod != null) { // the getter and setter methods are present
                 if (Arrays.equals(of(String.class), setterMethod.getParameterTypes())) { // the param type is String
-                    // set bean name to the value of the the property
+                    // set bean name to the value of the property
                     invokeMethod(setterMethod, bean, beanName);
                 }
             }

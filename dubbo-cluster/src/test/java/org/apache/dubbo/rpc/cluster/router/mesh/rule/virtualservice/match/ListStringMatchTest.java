@@ -26,10 +26,10 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class ListStringMatchTest {
+class ListStringMatchTest {
 
     @Test
-    public void isMatch() {
+    void isMatch() {
         ListStringMatch listStringMatch = new ListStringMatch();
 
         List<StringMatch> oneof = new ArrayList<>();
@@ -46,9 +46,9 @@ public class ListStringMatchTest {
 
         listStringMatch.setOneof(oneof);
 
-        assertTrue(ListStringMatch.isMatch(listStringMatch, "1"));
-        assertTrue(ListStringMatch.isMatch(listStringMatch, "2"));
-        assertFalse(ListStringMatch.isMatch(listStringMatch, "3"));
+        assertTrue(listStringMatch.isMatch("1"));
+        assertTrue(listStringMatch.isMatch("2"));
+        assertFalse(listStringMatch.isMatch("3"));
 
     }
 }

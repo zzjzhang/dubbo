@@ -20,6 +20,7 @@ package org.apache.dubbo.registry.integration;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.url.component.ServiceConfigURL;
 import org.apache.dubbo.registry.Registry;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -36,16 +37,16 @@ import static org.apache.dubbo.registry.integration.RegistryProtocol.DEFAULT_REG
 import static org.apache.dubbo.remoting.Constants.CHECK_KEY;
 import static org.apache.dubbo.rpc.cluster.Constants.REFER_KEY;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
-public class DynamicDirectoryTest {
+class DynamicDirectoryTest {
 
     /**
      * verify simplified consumer url information that needs to be registered
      */
     @Test
-    public void testSimplifiedUrl() {
+    void testSimplifiedUrl() {
 
         // verify that the consumer url information that needs to be registered is not simplified by default
         Map<String, String> parameters = new HashMap<>();
@@ -111,7 +112,7 @@ public class DynamicDirectoryTest {
 
 
     @Test
-    public void testSubscribe() {
+    void testSubscribe() {
 
         Map<String, String> parameters = new HashMap<>();
         parameters.put(INTERFACE_KEY, DemoService.class.getName());

@@ -18,15 +18,18 @@
 package org.apache.dubbo.registry;
 
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.utils.CollectionUtils;
 import org.apache.dubbo.common.utils.UrlUtils;
 
 import java.util.List;
+import java.util.function.Consumer;
+
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.INTERNAL_ERROR;
 
 public class ListenerRegistryWrapper implements Registry {
-    private static final Logger logger = LoggerFactory.getLogger(ListenerRegistryWrapper.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(ListenerRegistryWrapper.class);
 
     private final Registry registry;
     private final List<RegistryServiceListener> listeners;
@@ -59,21 +62,8 @@ public class ListenerRegistryWrapper implements Registry {
                 registry.register(url);
             }
         } finally {
-            if (CollectionUtils.isNotEmpty(listeners) && !UrlUtils.isConsumer(url)) {
-                RuntimeException exception = null;
-                for (RegistryServiceListener listener : listeners) {
-                    if (listener != null) {
-                        try {
-                            listener.onRegister(url, registry);
-                        } catch (RuntimeException t) {
-                            logger.error(t.getMessage(), t);
-                            exception = t;
-                        }
-                    }
-                }
-                if (exception != null) {
-                    throw exception;
-                }
+            if (!UrlUtils.isConsumer(url)) {
+                listenerEvent(serviceListener -> serviceListener.onRegister(url, registry));
             }
         }
     }
@@ -81,23 +71,12 @@ public class ListenerRegistryWrapper implements Registry {
     @Override
     public void unregister(URL url) {
         try {
-            registry.unregister(url);
+            if (registry != null) {
+                registry.unregister(url);
+            }
         } finally {
-            if (CollectionUtils.isNotEmpty(listeners) && !UrlUtils.isConsumer(url)) {
-                RuntimeException exception = null;
-                for (RegistryServiceListener listener : listeners) {
-                    if (listener != null) {
-                        try {
-                            listener.onUnregister(url, registry);
-                        } catch (RuntimeException t) {
-                            logger.error(t.getMessage(), t);
-                            exception = t;
-                        }
-                    }
-                }
-                if (exception != null) {
-                    throw exception;
-                }
+            if (!UrlUtils.isConsumer(url)) {
+                listenerEvent(serviceListener -> serviceListener.onUnregister(url, registry));
             }
         }
     }
@@ -109,47 +88,24 @@ public class ListenerRegistryWrapper implements Registry {
                 registry.subscribe(url, listener);
             }
         } finally {
-            if (CollectionUtils.isNotEmpty(listeners)) {
-                RuntimeException exception = null;
-                for (RegistryServiceListener registryListener : listeners) {
-                    if (registryListener != null) {
-                        try {
-                            registryListener.onSubscribe(url, registry);
-                        } catch (RuntimeException t) {
-                            logger.error(t.getMessage(), t);
-                            exception = t;
-                        }
-                    }
-                }
-                if (exception != null) {
-                    throw exception;
-                }
-            }
+            listenerEvent(serviceListener -> serviceListener.onSubscribe(url, registry));
         }
     }
+
 
     @Override
     public void unsubscribe(URL url, NotifyListener listener) {
         try {
             registry.unsubscribe(url, listener);
         } finally {
-            if (CollectionUtils.isNotEmpty(listeners)) {
-                RuntimeException exception = null;
-                for (RegistryServiceListener registryListener : listeners) {
-                    if (registryListener != null) {
-                        try {
-                            registryListener.onUnsubscribe(url, registry);
-                        } catch (RuntimeException t) {
-                            logger.error(t.getMessage(), t);
-                            exception = t;
-                        }
-                    }
-                }
-                if (exception != null) {
-                    throw exception;
-                }
-            }
+            listenerEvent(serviceListener -> serviceListener.onUnsubscribe(url, registry));
+
         }
+    }
+
+    @Override
+    public boolean isServiceDiscovery() {
+        return registry.isServiceDiscovery();
     }
 
     @Override
@@ -159,5 +115,24 @@ public class ListenerRegistryWrapper implements Registry {
 
     public Registry getRegistry() {
         return registry;
+    }
+
+    private void listenerEvent(Consumer<RegistryServiceListener> consumer) {
+        if (CollectionUtils.isNotEmpty(listeners)) {
+            RuntimeException exception = null;
+            for (RegistryServiceListener listener : listeners) {
+                if (listener != null) {
+                    try {
+                        consumer.accept(listener);
+                    } catch (RuntimeException t) {
+                        logger.error(INTERNAL_ERROR, "unknown error in registry module", "", t.getMessage(), t);
+                        exception = t;
+                    }
+                }
+            }
+            if (exception != null) {
+                throw exception;
+            }
+        }
     }
 }

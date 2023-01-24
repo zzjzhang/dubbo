@@ -32,16 +32,25 @@ import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.ProtocolServer;
 import org.apache.dubbo.rpc.ProxyFactory;
 import org.apache.dubbo.rpc.Result;
+import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.RpcException;
 
 import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.apache.dubbo.common.constants.CommonConstants.ANYHOST_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.ANYHOST_VALUE;
+import static org.apache.dubbo.common.constants.CommonConstants.GROUP_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.INTERFACE_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.PATH_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.VERSION_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_UNSUPPORTED;
+import static org.apache.dubbo.rpc.Constants.TOKEN_KEY;
 
 /**
  * AbstractProxyProtocol
@@ -84,7 +93,35 @@ public abstract class AbstractProxyProtocol extends AbstractProtocol {
                 return exporter;
             }
         }
-        final Runnable runnable = doExport(proxyFactory.getProxy(invoker, true), invoker.getInterface(), invoker.getUrl());
+        final Runnable runnable = doExport(proxyFactory.getProxy(
+                new Invoker<T>() {
+                    @Override
+                    public Class<T> getInterface() {
+                        return invoker.getInterface();
+                    }
+
+                    @Override
+                    public Result invoke(Invocation invocation) throws RpcException {
+                        RpcContext.getServiceContext().getObjectAttachments().forEach(invocation::setObjectAttachment);
+                        return invoker.invoke(invocation);
+                    }
+
+                    @Override
+                    public URL getUrl() {
+                        return invoker.getUrl();
+                    }
+
+                    @Override
+                    public boolean isAvailable() {
+                        return invoker.isAvailable();
+                    }
+
+                    @Override
+                    public void destroy() {
+                        invoker.destroy();
+                    }
+                }, true), invoker.getInterface(),
+            invoker.getUrl());
         exporter = new AbstractExporter<T>(invoker) {
             @Override
             public void afterUnExport() {
@@ -93,7 +130,7 @@ public abstract class AbstractProxyProtocol extends AbstractProtocol {
                     try {
                         runnable.run();
                     } catch (Throwable t) {
-                        logger.warn(t.getMessage(), t);
+                        logger.warn(PROTOCOL_UNSUPPORTED, "", "", t.getMessage(), t);
                     }
                 }
             }
@@ -105,10 +142,12 @@ public abstract class AbstractProxyProtocol extends AbstractProtocol {
     @Override
     protected <T> Invoker<T> protocolBindingRefer(final Class<T> type, final URL url) throws RpcException {
         final Invoker<T> target = proxyFactory.getInvoker(doRefer(type, url), type, url);
-        Invoker<T> invoker = new AbstractInvoker<T>(type, url) {
+        Invoker<T> invoker = new AbstractInvoker<T>(type, url, new String[]{INTERFACE_KEY, GROUP_KEY, TOKEN_KEY}) {
             @Override
-            protected Result doInvoke(Invocation invocation) throws Throwable {
+            protected Result doInvoke(Invocation invocation) {
                 try {
+                    invocation.setAttachment(PATH_KEY, getUrl().getPath());
+                    invocation.setAttachment(VERSION_KEY, version);
                     Result result = target.invoke(invocation);
                     // FIXME result is an AsyncRpcResult instance.
                     Throwable e = result.getException();
@@ -135,15 +174,21 @@ public abstract class AbstractProxyProtocol extends AbstractProtocol {
                 super.destroy();
                 target.destroy();
                 invokers.remove(this);
+                AbstractProxyProtocol.this.destroyInternal(url);
             }
         };
         invokers.add(invoker);
         return invoker;
     }
 
+    // used to destroy unused clients and other resource
+    protected void destroyInternal(URL url) {
+        // subclass override
+    }
+
     protected RpcException getRpcException(Class<?> type, URL url, Invocation invocation, Throwable e) {
         RpcException re = new RpcException("Failed to invoke remote service: " + type + ", method: "
-                + invocation.getMethodName() + ", cause: " + e.getMessage(), e);
+            + invocation.getMethodName() + ", cause: " + e.getMessage(), e);
         re.setCode(getErrorCode(e));
         return re;
     }
@@ -168,6 +213,7 @@ public abstract class AbstractProxyProtocol extends AbstractProtocol {
 
         private RemotingServer server;
         private String address;
+        private Map<String, Object> attributes = new ConcurrentHashMap<>();
 
         public ProxyProtocolServer(RemotingServer server) {
             this.server = server;
@@ -196,6 +242,11 @@ public abstract class AbstractProxyProtocol extends AbstractProtocol {
         @Override
         public void close() {
             server.close();
+        }
+
+        @Override
+        public Map<String, Object> getAttributes() {
+            return attributes;
         }
     }
 

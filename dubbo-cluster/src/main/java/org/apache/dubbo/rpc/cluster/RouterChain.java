@@ -16,315 +16,224 @@
  */
 package org.apache.dubbo.rpc.cluster;
 
-import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.Version;
-import org.apache.dubbo.common.extension.ExtensionLoader;
-import org.apache.dubbo.common.logger.Logger;
-import org.apache.dubbo.common.logger.LoggerFactory;
-import org.apache.dubbo.common.threadpool.manager.ExecutorRepository;
-import org.apache.dubbo.common.utils.CollectionUtils;
-import org.apache.dubbo.common.utils.NetUtils;
-import org.apache.dubbo.rpc.Invocation;
-import org.apache.dubbo.rpc.Invoker;
-import org.apache.dubbo.rpc.RpcException;
-import org.apache.dubbo.rpc.cluster.router.state.AddrCache;
-import org.apache.dubbo.rpc.cluster.router.state.BitList;
-import org.apache.dubbo.rpc.cluster.router.state.RouterCache;
-import org.apache.dubbo.rpc.cluster.router.state.StateRouter;
-import org.apache.dubbo.rpc.cluster.router.state.StateRouterFactory;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
+import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.config.ConfigurationUtils;
+import org.apache.dubbo.common.constants.LoggerCodeConstants;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
+import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.rpc.Invocation;
+import org.apache.dubbo.rpc.Invoker;
+import org.apache.dubbo.rpc.cluster.router.RouterSnapshotSwitcher;
+import org.apache.dubbo.rpc.cluster.router.state.BitList;
+import org.apache.dubbo.rpc.cluster.router.state.StateRouter;
+import org.apache.dubbo.rpc.cluster.router.state.StateRouterFactory;
+import org.apache.dubbo.rpc.model.ModuleModel;
+import org.apache.dubbo.rpc.model.ScopeModelUtil;
+
 import static org.apache.dubbo.rpc.cluster.Constants.ROUTER_KEY;
-import static org.apache.dubbo.rpc.cluster.Constants.STATE_ROUTER_KEY;
 
 /**
  * Router chain
  */
 public class RouterChain<T> {
-    private static final Logger logger = LoggerFactory.getLogger(RouterChain.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(RouterChain.class);
 
-    /**
-     * full list of addresses from registry, classified by method name.
-     */
-    private volatile List<Invoker<T>> invokers = Collections.emptyList();
+    private volatile SingleRouterChain<T> mainChain;
+    private volatile SingleRouterChain<T> backupChain;
+    private volatile SingleRouterChain<T> currentChain;
 
-    /**
-     * containing all routers, reconstruct every time 'route://' urls change.
-     */
-    private volatile List<Router> routers = Collections.emptyList();
-
-    /**
-     * Fixed router instances: ConfigConditionRouter, TagRouter, e.g.,
-     * the rule for each instance may change but the instance will never delete or recreate.
-     */
-    private List<Router> builtinRouters = Collections.emptyList();
-
-    private List<StateRouter> builtinStateRouters = Collections.emptyList();
-    private List<StateRouter> stateRouters = Collections.emptyList();
-    private final ExecutorRepository executorRepository = ExtensionLoader.getExtensionLoader(ExecutorRepository.class)
-        .getDefaultExtension();
-
-    protected URL url;
-
-    private AtomicReference<AddrCache<T>> cache = new AtomicReference<>();
-
-    private final Semaphore loopPermit = new Semaphore(1);
-    private final Semaphore loopPermitNotify = new Semaphore(1);
-
-    private final ExecutorService loopPool;
-
-    private AtomicBoolean firstBuildCache = new AtomicBoolean(true);
-
-    public static <T> RouterChain<T> buildChain(URL url) {
-        return new RouterChain<>(url);
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public static <T> RouterChain<T> buildChain(Class<T> interfaceClass, URL url) {
+        SingleRouterChain<T> chain1 = buildSingleChain(interfaceClass, url);
+        SingleRouterChain<T> chain2 = buildSingleChain(interfaceClass, url);
+        return new RouterChain<>(new SingleRouterChain[]{chain1, chain2});
     }
 
-    private RouterChain(URL url) {
-        loopPool = executorRepository.nextExecutorExecutor();
-        List<RouterFactory> extensionFactories = ExtensionLoader.getExtensionLoader(RouterFactory.class)
+    public static <T> SingleRouterChain<T> buildSingleChain(Class<T> interfaceClass, URL url) {
+        ModuleModel moduleModel = url.getOrDefaultModuleModel();
+
+        List<RouterFactory> extensionFactories = moduleModel.getExtensionLoader(RouterFactory.class)
             .getActivateExtension(url, ROUTER_KEY);
 
         List<Router> routers = extensionFactories.stream()
             .map(factory -> factory.getRouter(url))
+            .sorted(Router::compareTo)
             .collect(Collectors.toList());
 
-        initWithRouters(routers);
-
-        List<StateRouterFactory> extensionStateRouterFactories = ExtensionLoader.getExtensionLoader(
-            StateRouterFactory.class)
-            .getActivateExtension(url, STATE_ROUTER_KEY);
-
-        List<StateRouter> stateRouters = extensionStateRouterFactories.stream()
-            .map(factory -> factory.getRouter(url, this))
-            .sorted(StateRouter::compareTo)
+        List<StateRouter<T>> stateRouters = moduleModel
+            .getExtensionLoader(StateRouterFactory.class)
+            .getActivateExtension(url, ROUTER_KEY)
+            .stream()
+            .map(factory -> factory.getRouter(interfaceClass, url))
             .collect(Collectors.toList());
 
-        // init state routers
-        initWithStateRouters(stateRouters);
+
+        boolean shouldFailFast = Boolean.parseBoolean(ConfigurationUtils.getProperty(moduleModel, Constants.SHOULD_FAIL_FAST_KEY, "true"));
+
+        RouterSnapshotSwitcher routerSnapshotSwitcher = ScopeModelUtil.getFrameworkModel(moduleModel).getBeanFactory().getBean(RouterSnapshotSwitcher.class);
+
+        return new SingleRouterChain<>(routers, stateRouters, shouldFailFast, routerSnapshotSwitcher);
+    }
+
+    public RouterChain(SingleRouterChain<T>[] chains) {
+        if (chains.length != 2) {
+            throw new IllegalArgumentException("chains' size should be 2.");
+        }
+        this.mainChain = chains[0];
+        this.backupChain = chains[1];
+        this.currentChain = this.mainChain;
+    }
+
+    private final AtomicReference<BitList<Invoker<T>>> notifyingInvokers = new AtomicReference<>();
+
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+
+    public ReadWriteLock getLock() {
+        return lock;
+    }
+
+    public SingleRouterChain<T> getSingleChain(URL url, BitList<Invoker<T>> availableInvokers, Invocation invocation) {
+        // If current is in:
+        // 1. `setInvokers` is in progress
+        // 2. Most of the invocation should use backup chain => currentChain == backupChain
+        // 3. Main chain has been update success => notifyingInvokers.get() != null
+        //     If `availableInvokers` is created from origin invokers => use backup chain
+        //     If `availableInvokers` is created from newly invokers  => use main chain
+        BitList<Invoker<T>> notifying = notifyingInvokers.get();
+        if (notifying != null &&
+            currentChain == backupChain &&
+            availableInvokers.getOriginList() == notifying.getOriginList()) {
+            return mainChain;
+        }
+        return currentChain;
     }
 
     /**
-     * the resident routers must being initialized before address notification.
-     * FIXME: this method should not be public
+     * @deprecated use {@link RouterChain#getSingleChain(URL, BitList, Invocation)} and {@link SingleRouterChain#route(URL, BitList, Invocation)} instead
      */
-    public void initWithRouters(List<Router> builtinRouters) {
-        this.builtinRouters = builtinRouters;
-        this.routers = new ArrayList<>(builtinRouters);
-        this.sort();
-    }
-
-    private void initWithStateRouters(List<StateRouter> builtinRouters) {
-        this.builtinStateRouters = builtinRouters;
-        this.stateRouters = new ArrayList<>(builtinRouters);
-    }
-
-    /**
-     * If we use route:// protocol in version before 2.7.0, each URL will generate a Router instance, so we should
-     * keep the routers up to date, that is, each time router URLs changes, we should update the routers list, only
-     * keep the builtinRouters which are available all the time and the latest notified routers which are generated
-     * from URLs.
-     *
-     * @param routers routers from 'router://' rules in 2.6.x or before.
-     */
-    public void addRouters(List<Router> routers) {
-        List<Router> newRouters = new ArrayList<>();
-        newRouters.addAll(builtinRouters);
-        newRouters.addAll(routers);
-        CollectionUtils.sort(newRouters);
-        this.routers = newRouters;
-    }
-
-    public void addStateRouters(List<StateRouter> stateRouters) {
-        List<StateRouter> newStateRouters = new ArrayList<>();
-        newStateRouters.addAll(builtinStateRouters);
-        newStateRouters.addAll(stateRouters);
-        CollectionUtils.sort(newStateRouters);
-        this.stateRouters = newStateRouters;
-    }
-
-    public List<Router> getRouters() {
-        return routers;
-    }
-
-    public List<StateRouter> getStateRouters() {
-        return stateRouters;
-    }
-
-    private void sort() {
-        Collections.sort(routers);
-    }
-
-    /**
-     * @param url
-     * @param invocation
-     * @return
-     */
-    public List<Invoker<T>> route(URL url, Invocation invocation) {
-
-        AddrCache<T> cache = this.cache.get();
-        if (cache == null) {
-            throw new RpcException(RpcException.ROUTER_CACHE_NOT_BUILD, "Failed to invoke the method "
-                + invocation.getMethodName() + " in the service " + url.getServiceInterface()
-                + ". address cache not build "
-                + " on the consumer " + NetUtils.getLocalHost()
-                + " using the dubbo version " + Version.getVersion()
-                + ".");
-        }
-        BitList<Invoker<T>> finalBitListInvokers = new BitList<>(invokers, false);
-        for (StateRouter stateRouter : stateRouters) {
-            if (stateRouter.isEnable()) {
-                RouterCache<T> routerCache = cache.getCache().get(stateRouter.getName());
-                finalBitListInvokers = stateRouter.route(finalBitListInvokers, routerCache, url, invocation);
-            }
-        }
-
-        List<Invoker<T>> finalInvokers = new ArrayList<>(finalBitListInvokers.size());
-
-        for(Invoker<T> invoker: finalBitListInvokers) {
-            finalInvokers.add(invoker);
-        }
-
-        for (Router router : routers) {
-            finalInvokers = router.route(finalInvokers, url, invocation);
-        }
-        return finalInvokers;
+    @Deprecated
+    public List<Invoker<T>> route(URL url, BitList<Invoker<T>> availableInvokers, Invocation invocation) {
+        return getSingleChain(url, availableInvokers, invocation).route(url, availableInvokers, invocation);
     }
 
     /**
      * Notify router chain of the initial addresses from registry at the first time.
      * Notify whenever addresses in registry change.
      */
-    public void setInvokers(List<Invoker<T>> invokers) {
-        this.invokers = (invokers == null ? Collections.emptyList() : invokers);
-        stateRouters.forEach(router -> router.notify(this.invokers));
-        routers.forEach(router -> router.notify(this.invokers));
-        loop(true);
-    }
+    public synchronized void setInvokers(BitList<Invoker<T>> invokers, Runnable switchAction) {
+        try {
+            // Lock to prevent directory continue list
+            lock.writeLock().lock();
 
-    /**
-     * Build the asynchronous address cache for stateRouter.
-     * @param notify Whether the addresses in registry has changed.
-     */
-    private void buildCache(boolean notify) {
-        if (invokers == null || invokers.size() <= 0) {
-            return;
-        }
-        AddrCache<T> origin = cache.get();
-        List<Invoker<T>> copyInvokers = new ArrayList<>(this.invokers);
-        AddrCache<T> newCache = new AddrCache<T>();
-        Map<String, RouterCache<T>> routerCacheMap = new HashMap<>((int) (stateRouters.size() / 0.75f) + 1);
-        newCache.setInvokers(invokers);
-        for (StateRouter stateRouter : stateRouters) {
-            try {
-                RouterCache routerCache = poolRouter(stateRouter, origin, copyInvokers, notify);
-                //file cache
-                routerCacheMap.put(stateRouter.getName(), routerCache);
-            } catch (Throwable t) {
-                logger.error("Failed to pool router: " + stateRouter.getUrl() + ", cause: " + t.getMessage(), t);
-                return;
-            }
+            // Switch to back up chain. Will update main chain first.
+            currentChain = backupChain;
+        } finally {
+            // Release lock to minimize the impact for each newly created invocations as much as possible.
+            // Should not release lock until main chain update finished. Or this may cause long hang.
+            lock.writeLock().unlock();
         }
 
-        newCache.setCache(routerCacheMap);
-        this.cache.set(newCache);
-    }
+        // Refresh main chain.
+        // No one can request to use main chain. `currentChain` is backup chain. `route` method cannot access main chain.
+        try {
+            // Lock main chain to wait all invocation end
+            // To wait until no one is using main chain.
+            mainChain.getLock().writeLock().lock();
 
-    /**
-     * Cache the address list for each StateRouter.
-     * @param router router
-     * @param origin The original address cache
-     * @param invokers The full address list
-     * @param notify Whether the addresses in registry has changed.
-     * @return
-     */
-    private RouterCache poolRouter(StateRouter router, AddrCache<T> origin, List<Invoker<T>> invokers, boolean notify) {
-        String routerName = router.getName();
-        RouterCache routerCache;
-        if (isCacheMiss(origin, routerName) || router.shouldRePool() || notify) {
-            return router.pool(invokers);
-        } else {
-            routerCache = origin.getCache().get(routerName);
+            // refresh
+            mainChain.setInvokers(invokers);
+        } catch (Throwable t) {
+            logger.error(LoggerCodeConstants.INTERNAL_ERROR, "", "", "Error occurred when refreshing router chain.", t);
+            throw t;
+        } finally {
+            // Unlock main chain
+            mainChain.getLock().writeLock().unlock();
         }
-        if (routerCache == null) {
-            return new RouterCache();
-        }
-        return routerCache;
-    }
 
-    private boolean isCacheMiss(AddrCache<T> cache, String routerName) {
-        return cache == null || cache.getCache() == null || cache.getInvokers() == null || cache.getCache().get(
-            routerName)
-            == null;
-    }
+        // Set the reference of newly invokers to temp variable.
+        // Reason: The next step will switch the invokers reference in directory, so we should check the `availableInvokers`
+        //         argument when `route`. If the current invocation use newly invokers, we should use main chain to route, and
+        //         this can prevent use newly invokers to route backup chain, which can only route origin invokers now.
+        notifyingInvokers.set(invokers);
 
-    /***
-     * Build the asynchronous address cache for stateRouter.
-     * @param notify Whether the addresses in registry has changed.
-     */
-    public void loop(boolean notify) {
-        if (firstBuildCache.get()) {
-            firstBuildCache.compareAndSet(true,false);
-            buildCache(notify);
+        // Switch the invokers reference in directory.
+        // Cannot switch before update main chain or after backup chain update success. Or that will cause state inconsistent.
+        switchAction.run();
+
+        try {
+            // Lock to prevent directory continue list
+            // The invokers reference in directory now should be the newly one and should always use the newly one once lock released.
+            lock.writeLock().lock();
+
+            // Switch to main chain. Will update backup chain later.
+            currentChain = mainChain;
+
+            // Clean up temp variable.
+            // `availableInvokers` check is useless now, because `route` method will no longer receive any `availableInvokers` related
+            // with the origin invokers. The getter of invokers reference in directory is locked now, and will return newly invokers
+            // once lock released.
+            notifyingInvokers.set(null);
+        } finally {
+            // Release lock to minimize the impact for each newly created invocations as much as possible.
+            // Will use newly invokers and main chain now.
+            lock.writeLock().unlock();
         }
-        if (notify) {
-            if (loopPermitNotify.tryAcquire()) {
-                loopPool.submit(new NotifyLoopRunnable(true, loopPermitNotify));
-            }
-        } else {
-            if (loopPermit.tryAcquire()) {
-                loopPool.submit(new NotifyLoopRunnable(false, loopPermit));
-            }
+
+        // Refresh main chain.
+        // No one can request to use main chain. `currentChain` is main chain. `route` method cannot access backup chain.
+        try {
+            // Lock main chain to wait all invocation end
+            backupChain.getLock().writeLock().lock();
+
+            // refresh
+            backupChain.setInvokers(invokers);
+        } catch (Throwable t) {
+            logger.error(LoggerCodeConstants.INTERNAL_ERROR, "", "", "Error occurred when refreshing router chain.", t);
+            throw t;
+        } finally {
+            // Unlock backup chain
+            backupChain.getLock().writeLock().unlock();
         }
     }
 
-    class NotifyLoopRunnable implements Runnable {
+    public synchronized void destroy() {
+        // 1. destroy another
+        backupChain.destroy();
 
-        private final boolean notify;
-        private final Semaphore loopPermit;
+        // 2. switch
+        lock.writeLock().lock();
+        currentChain = backupChain;
+        lock.writeLock().unlock();
 
-        public NotifyLoopRunnable(boolean notify, Semaphore loopPermit) {
-            this.notify = notify;
-            this.loopPermit = loopPermit;
-        }
-
-        @Override
-        public void run() {
-            buildCache(notify);
-            loopPermit.release();
-        }
+        // 4. destroy
+        mainChain.destroy();
     }
 
-    public void destroy() {
-        invokers = Collections.emptyList();
-        for (Router router : routers) {
-            try {
-                router.stop();
-            } catch (Exception e) {
-                logger.error("Error trying to stop router " + router.getClass(), e);
-            }
-        }
-        routers = Collections.emptyList();
-        builtinRouters = Collections.emptyList();
-
-        for (StateRouter router : stateRouters) {
-            try {
-                router.stop();
-            } catch (Exception e) {
-                logger.error("Error trying to stop stateRouter " + router.getClass(), e);
-            }
-        }
-        stateRouters = Collections.emptyList();
-        builtinStateRouters = Collections.emptyList();
+    public void addRouters(List<Router> routers) {
+        mainChain.addRouters(routers);
+        backupChain.addRouters(routers);
     }
 
+    public SingleRouterChain<T> getCurrentChain() {
+        return currentChain;
+    }
+
+    public List<Router> getRouters() {
+        return currentChain.getRouters();
+    }
+
+    public StateRouter<T> getHeadStateRouter() {
+        return currentChain.getHeadStateRouter();
+    }
+
+    @Deprecated
+    public List<StateRouter<T>> getStateRouters() {
+        return currentChain.getStateRouters();
+    }
 }

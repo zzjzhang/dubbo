@@ -19,25 +19,28 @@ package org.apache.dubbo.registry.client.migration;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.registry.client.migration.model.MigrationRule;
 import org.apache.dubbo.registry.client.migration.model.MigrationStep;
+import org.apache.dubbo.rpc.model.ApplicationModel;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-public class MigrationRuleHandlerTest {
+class MigrationRuleHandlerTest {
     @Test
-    public void test() {
+    void test() {
         MigrationClusterInvoker invoker = Mockito.mock(MigrationClusterInvoker.class);
         URL url = Mockito.mock(URL.class);
         Mockito.when(url.getDisplayServiceKey()).thenReturn("test");
         Mockito.when(url.getParameter(Mockito.any(), (String) Mockito.any())).thenAnswer(i->i.getArgument(1));
+        Mockito.when(url.getOrDefaultApplicationModel()).thenReturn(ApplicationModel.defaultModel());
         MigrationRuleHandler handler = new MigrationRuleHandler(invoker, url);
 
         Mockito.when(invoker.migrateToForceApplicationInvoker(Mockito.any())).thenReturn(true);
         Mockito.when(invoker.migrateToForceInterfaceInvoker(Mockito.any())).thenReturn(true);
 
-        handler.doMigrate(MigrationRule.INIT);
-        Mockito.verify(invoker, Mockito.times(1)).migrateToApplicationFirstInvoker(MigrationRule.INIT);
+        MigrationRule initRule = MigrationRule.getInitRule();
+        handler.doMigrate(initRule);
+        Mockito.verify(invoker, Mockito.times(1)).migrateToApplicationFirstInvoker(initRule);
 
         MigrationRule rule = Mockito.mock(MigrationRule.class);
         Mockito.when(rule.getStep(url)).thenReturn(MigrationStep.FORCE_APPLICATION);

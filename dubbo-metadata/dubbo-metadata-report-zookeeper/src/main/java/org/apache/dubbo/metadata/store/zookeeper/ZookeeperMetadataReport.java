@@ -18,8 +18,10 @@ package org.apache.dubbo.metadata.store.zookeeper;
 
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.config.configcenter.ConfigItem;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.ConcurrentHashMapUtils;
+import org.apache.dubbo.common.utils.JsonUtils;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.metadata.MappingChangedEvent;
 import org.apache.dubbo.metadata.MappingListener;
@@ -35,7 +37,6 @@ import org.apache.dubbo.remoting.zookeeper.EventType;
 import org.apache.dubbo.remoting.zookeeper.ZookeeperClient;
 import org.apache.dubbo.remoting.zookeeper.ZookeeperTransporter;
 
-import com.google.gson.Gson;
 import org.apache.zookeeper.data.Stat;
 
 import java.util.ArrayList;
@@ -45,8 +46,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static org.apache.dubbo.common.constants.CommonConstants.PATH_SEPARATOR;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.REGISTRY_ZOOKEEPER_EXCEPTION;
 import static org.apache.dubbo.metadata.ServiceNameMapping.DEFAULT_MAPPING_GROUP;
 import static org.apache.dubbo.metadata.ServiceNameMapping.getAppNames;
 
@@ -55,15 +58,13 @@ import static org.apache.dubbo.metadata.ServiceNameMapping.getAppNames;
  */
 public class ZookeeperMetadataReport extends AbstractMetadataReport {
 
-    private final static Logger logger = LoggerFactory.getLogger(ZookeeperMetadataReport.class);
+    private final static ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(ZookeeperMetadataReport.class);
 
     private final String root;
 
-    final ZookeeperClient zkClient;
+    ZookeeperClient zkClient;
 
-    private Gson gson = new Gson();
-
-    private Map<String, MappingDataListener> casListenerMap = new ConcurrentHashMap<>();
+    private ConcurrentMap<String, MappingDataListener> casListenerMap = new ConcurrentHashMap<>();
 
 
     public ZookeeperMetadataReport(URL url, ZookeeperTransporter zookeeperTransporter) {
@@ -98,7 +99,7 @@ public class ZookeeperMetadataReport extends AbstractMetadataReport {
 
     @Override
     protected void doSaveMetadata(ServiceMetadataIdentifier metadataIdentifier, URL url) {
-        zkClient.create(getNodePath(metadataIdentifier), URL.encode(url.toFullString()), false);
+        zkClient.createOrUpdate(getNodePath(metadataIdentifier), URL.encode(url.toFullString()), false);
     }
 
     @Override
@@ -117,7 +118,7 @@ public class ZookeeperMetadataReport extends AbstractMetadataReport {
 
     @Override
     protected void doSaveSubscriberData(SubscriberMetadataIdentifier subscriberMetadataIdentifier, String urls) {
-        zkClient.create(getNodePath(subscriberMetadataIdentifier), urls, false);
+        zkClient.createOrUpdate(getNodePath(subscriberMetadataIdentifier), urls, false);
     }
 
     @Override
@@ -131,7 +132,7 @@ public class ZookeeperMetadataReport extends AbstractMetadataReport {
     }
 
     private void storeMetadata(MetadataIdentifier metadataIdentifier, String v) {
-        zkClient.create(getNodePath(metadataIdentifier), v, false);
+        zkClient.createOrUpdate(getNodePath(metadataIdentifier), v, false);
     }
 
     String getNodePath(BaseMetadataIdentifier metadataIdentifier) {
@@ -141,24 +142,43 @@ public class ZookeeperMetadataReport extends AbstractMetadataReport {
     @Override
     public void publishAppMetadata(SubscriberMetadataIdentifier identifier, MetadataInfo metadataInfo) {
         String path = getNodePath(identifier);
-        if (StringUtils.isBlank(zkClient.getContent(path))) {
-            zkClient.create(path, gson.toJson(metadataInfo), false);
+        if (StringUtils.isBlank(zkClient.getContent(path)) && StringUtils.isNotEmpty(metadataInfo.getContent())) {
+            zkClient.createOrUpdate(path, metadataInfo.getContent(), false);
+        }
+    }
+
+    @Override
+    public void unPublishAppMetadata(SubscriberMetadataIdentifier identifier, MetadataInfo metadataInfo) {
+        String path = getNodePath(identifier);
+        if (StringUtils.isNotEmpty(zkClient.getContent(path))) {
+            zkClient.delete(path);
         }
     }
 
     @Override
     public MetadataInfo getAppMetadata(SubscriberMetadataIdentifier identifier, Map<String, String> instanceMetadata) {
         String content = zkClient.getContent(getNodePath(identifier));
-        return gson.fromJson(content, MetadataInfo.class);
+        return JsonUtils.getJson().toJavaObject(content, MetadataInfo.class);
     }
 
     @Override
     public Set<String> getServiceAppMapping(String serviceKey, MappingListener listener, URL url) {
         String path = buildPathKey(DEFAULT_MAPPING_GROUP, serviceKey);
-        if (null == casListenerMap.get(path)) {
-            addCasServiceMappingListener(path, serviceKey, listener);
-        }
+        MappingDataListener mappingDataListener = ConcurrentHashMapUtils.computeIfAbsent(casListenerMap, path, _k -> {
+            MappingDataListener newMappingListener = new MappingDataListener(serviceKey, path);
+            zkClient.addDataListener(path, newMappingListener);
+            return newMappingListener;
+        });
+        mappingDataListener.addListener(listener);
         return getAppNames(zkClient.getContent(path));
+    }
+
+    @Override
+    public void removeServiceAppMappingListener(String serviceKey, MappingListener listener) {
+        String path = buildPathKey(DEFAULT_MAPPING_GROUP, serviceKey);
+        if (null != casListenerMap.get(path)) {
+            removeCasServiceMappingListener(path, listener);
+        }
     }
 
     @Override
@@ -180,22 +200,32 @@ public class ZookeeperMetadataReport extends AbstractMetadataReport {
                 throw new IllegalArgumentException("zookeeper publishConfigCas requires stat type ticket");
             }
             String pathKey = buildPathKey(group, key);
-            zkClient.createOrUpdate(pathKey, content, false, ticket == null ? 0 : ((Stat) ticket).getVersion());
+            zkClient.createOrUpdate(pathKey, content, false, ticket == null ? null : ((Stat) ticket).getVersion());
             return true;
         } catch (Exception e) {
-            logger.warn("zookeeper publishConfigCas failed.", e);
+            logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "zookeeper publishConfigCas failed.", e);
             return false;
         }
+    }
+
+    @Override
+    public void destroy() {
+        super.destroy();
+        // release zk client reference, but should not close it
+        zkClient = null;
     }
 
     private String buildPathKey(String group, String serviceKey) {
         return toRootDir() + group + PATH_SEPARATOR + serviceKey;
     }
 
-    private void addCasServiceMappingListener(String path, String serviceKey, MappingListener listener) {
-        MappingDataListener mappingDataListener = casListenerMap.computeIfAbsent(path, _k -> new MappingDataListener(serviceKey, path));
-        mappingDataListener.addListener(listener);
-        zkClient.addDataListener(path, mappingDataListener);
+    private void removeCasServiceMappingListener(String path, MappingListener listener) {
+        MappingDataListener mappingDataListener = casListenerMap.get(path);
+        mappingDataListener.removeListener(listener);
+        if (mappingDataListener.isEmpty()) {
+            zkClient.removeDataListener(path, mappingDataListener);
+            casListenerMap.remove(path, mappingDataListener);
+        }
     }
 
     private static class MappingDataListener implements DataListener {
@@ -212,6 +242,14 @@ public class ZookeeperMetadataReport extends AbstractMetadataReport {
 
         public void addListener(MappingListener listener) {
             this.listeners.add(listener);
+        }
+
+        public void removeListener(MappingListener listener) {
+            this.listeners.remove(listener);
+        }
+
+        public boolean isEmpty() {
+            return listeners.isEmpty();
         }
 
         @Override

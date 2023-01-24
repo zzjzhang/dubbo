@@ -19,11 +19,10 @@ package org.apache.dubbo.config.spring.issues.issue6000;
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
 import org.apache.dubbo.config.spring.issues.issue6000.adubbo.HelloDubbo;
-import org.apache.dubbo.config.spring.registrycenter.ZookeeperSingleRegistryCenter;
-import org.apache.dubbo.config.spring.registrycenter.RegistryCenter;
+
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
@@ -38,25 +37,20 @@ import org.springframework.context.annotation.PropertySource;
 @EnableDubbo
 @ComponentScan
 @PropertySource("classpath:/META-INF/issues/issue6000/config.properties")
-public class Issue6000Test {
-
-    private static RegistryCenter singleRegistryCenter;
+class Issue6000Test {
 
     @BeforeAll
     public static void beforeAll() {
-        singleRegistryCenter = new ZookeeperSingleRegistryCenter();
-        singleRegistryCenter.startup();
         DubboBootstrap.reset();
     }
 
     @AfterAll
     public static void afterAll() {
         DubboBootstrap.reset();
-        singleRegistryCenter.shutdown();
     }
 
     @Test
-    public void test() throws Exception {
+    void test() throws Exception {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(Issue6000Test.class);
         try {
 

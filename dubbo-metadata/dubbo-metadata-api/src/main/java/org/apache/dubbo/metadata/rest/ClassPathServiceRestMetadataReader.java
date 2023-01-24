@@ -16,13 +16,10 @@
  */
 package org.apache.dubbo.metadata.rest;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParser;
+import org.apache.dubbo.common.utils.IOUtils;
+import org.apache.dubbo.common.utils.JsonUtils;
 
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.Enumeration;
 import java.util.LinkedList;
@@ -41,14 +38,14 @@ import static org.apache.dubbo.metadata.rest.RestMetadataConstants.SERVICE_REST_
  */
 public class ClassPathServiceRestMetadataReader implements ServiceRestMetadataReader {
 
-    private final String serviceRestMetadataJsonResoucePath;
+    private final String serviceRestMetadataJsonResourcePath;
 
     public ClassPathServiceRestMetadataReader() {
         this(SERVICE_REST_METADATA_RESOURCE_PATH);
     }
 
-    public ClassPathServiceRestMetadataReader(String serviceRestMetadataJsonResoucePath) {
-        this.serviceRestMetadataJsonResoucePath = serviceRestMetadataJsonResoucePath;
+    public ClassPathServiceRestMetadataReader(String serviceRestMetadataJsonResourcePath) {
+        this.serviceRestMetadataJsonResourcePath = serviceRestMetadataJsonResourcePath;
     }
 
     @Override
@@ -59,21 +56,12 @@ public class ClassPathServiceRestMetadataReader implements ServiceRestMetadataRe
         ClassLoader classLoader = getClass().getClassLoader();
 
         execute(() -> {
-            Enumeration<URL> resources = classLoader.getResources(serviceRestMetadataJsonResoucePath);
-            Gson gson = new Gson();
+            Enumeration<URL> resources = classLoader.getResources(serviceRestMetadataJsonResourcePath);
             while (resources.hasMoreElements()) {
                 URL resource = resources.nextElement();
                 InputStream inputStream = resource.openStream();
-                JsonParser parser = new JsonParser();
-                JsonElement jsonElement = parser.parse(new InputStreamReader(inputStream, METADATA_ENCODING));
-                if (jsonElement.isJsonArray()) {
-                    JsonArray jsonArray = jsonElement.getAsJsonArray();
-                    for (int i = 0; i < jsonArray.size(); i++) {
-                        JsonElement childJsonElement = jsonArray.get(i);
-                        ServiceRestMetadata serviceRestMetadata = gson.fromJson(childJsonElement, ServiceRestMetadata.class);
-                        serviceRestMetadataList.add(serviceRestMetadata);
-                    }
-                }
+                String json = IOUtils.read(inputStream, METADATA_ENCODING);
+                serviceRestMetadataList.addAll(JsonUtils.getJson().toJavaList(json, ServiceRestMetadata.class));
             }
         });
 

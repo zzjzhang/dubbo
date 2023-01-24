@@ -17,19 +17,34 @@
 package org.apache.dubbo.common.extension.support;
 
 import org.apache.dubbo.common.extension.Activate;
+import org.apache.dubbo.common.extension.ExtensionDirector;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.common.extension.SPI;
 import org.apache.dubbo.common.utils.ArrayUtils;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * OrderComparator
  */
 public class ActivateComparator implements Comparator<Class<?>> {
 
-    public static final Comparator<Class<?>> COMPARATOR = new ActivateComparator();
+    private final List<ExtensionDirector> extensionDirectors;
+    private final Map<Class<?>, ActivateInfo> activateInfoMap = new ConcurrentHashMap<>();
+
+    public ActivateComparator(ExtensionDirector extensionDirector) {
+        extensionDirectors = new ArrayList<>();
+        extensionDirectors.add(extensionDirector);
+    }
+
+    public ActivateComparator(List<ExtensionDirector> extensionDirectors) {
+        this.extensionDirectors = extensionDirectors;
+    }
 
     @Override
     public int compare(Class o1, Class o2) {
@@ -52,9 +67,16 @@ public class ActivateComparator implements Comparator<Class<?>> {
         ActivateInfo a2 = parseActivate(o2);
 
         if ((a1.applicableToCompare() || a2.applicableToCompare()) && inf != null) {
-            ExtensionLoader<?> extensionLoader = ExtensionLoader.getExtensionLoader(inf);
             if (a1.applicableToCompare()) {
-                String n2 = extensionLoader.getExtensionName(o2);
+                String n2 = null;
+                for (ExtensionDirector director : extensionDirectors) {
+                    ExtensionLoader<?> extensionLoader = director.getExtensionLoader(inf);
+                    n2 = extensionLoader.getExtensionName(o2);
+                    if (n2 != null) {
+                        break;
+                    }
+                }
+
                 if (a1.isLess(n2)) {
                     return -1;
                 }
@@ -65,7 +87,15 @@ public class ActivateComparator implements Comparator<Class<?>> {
             }
 
             if (a2.applicableToCompare()) {
-                String n1 = extensionLoader.getExtensionName(o1);
+                String n1 = null;
+                for (ExtensionDirector director : extensionDirectors) {
+                    ExtensionLoader<?> extensionLoader = director.getExtensionLoader(inf);
+                    n1 = extensionLoader.getExtensionName(o1);
+                    if (n1 != null) {
+                        break;
+                    }
+                }
+
                 if (a2.isLess(n1)) {
                     return 1;
                 }
@@ -98,33 +128,38 @@ public class ActivateComparator implements Comparator<Class<?>> {
         for (Class<?> intf : clazz.getInterfaces()) {
             if (intf.isAnnotationPresent(SPI.class)) {
                 return intf;
-            } else {
-                Class<?> result = findSpi(intf);
-                if (result != null) {
-                    return result;
-                }
+            }
+            Class<?> result = findSpi(intf);
+            if (result != null) {
+                return result;
             }
         }
 
         return null;
     }
 
+    @SuppressWarnings("deprecation")
     private ActivateInfo parseActivate(Class<?> clazz) {
-        ActivateInfo info = new ActivateInfo();
+        ActivateInfo info = activateInfoMap.get(clazz);
+        if (info != null) {
+            return info;
+        }
+        info = new ActivateInfo();
         if (clazz.isAnnotationPresent(Activate.class)) {
             Activate activate = clazz.getAnnotation(Activate.class);
             info.before = activate.before();
             info.after = activate.after();
             info.order = activate.order();
-        } else if (clazz.isAnnotationPresent(com.alibaba.dubbo.common.extension.Activate.class)){
+        } else if (clazz.isAnnotationPresent(com.alibaba.dubbo.common.extension.Activate.class)) {
             com.alibaba.dubbo.common.extension.Activate activate = clazz.getAnnotation(
-                    com.alibaba.dubbo.common.extension.Activate.class);
+                com.alibaba.dubbo.common.extension.Activate.class);
             info.before = activate.before();
             info.after = activate.after();
             info.order = activate.order();
         } else {
             info.order = 0;
         }
+        activateInfoMap.put(clazz, info);
         return info;
     }
 

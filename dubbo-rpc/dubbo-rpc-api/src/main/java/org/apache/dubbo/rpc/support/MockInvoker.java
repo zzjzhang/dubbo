@@ -17,10 +17,11 @@
 package org.apache.dubbo.rpc.support;
 
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.extension.ExtensionDirector;
 import org.apache.dubbo.common.extension.ExtensionInjector;
-import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.common.utils.ArrayUtils;
 import org.apache.dubbo.common.utils.ConfigUtils;
+import org.apache.dubbo.common.utils.JsonUtils;
 import org.apache.dubbo.common.utils.PojoUtils;
 import org.apache.dubbo.common.utils.ReflectUtils;
 import org.apache.dubbo.common.utils.StringUtils;
@@ -32,11 +33,8 @@ import org.apache.dubbo.rpc.Result;
 import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.RpcInvocation;
 
-import com.alibaba.fastjson.JSON;
-
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Type;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -48,7 +46,7 @@ import static org.apache.dubbo.rpc.Constants.RETURN_PREFIX;
 import static org.apache.dubbo.rpc.Constants.THROW_PREFIX;
 
 final public class MockInvoker<T> implements Invoker<T> {
-    private final static ProxyFactory PROXY_FACTORY = ExtensionLoader.getExtensionLoader(ProxyFactory.class).getAdaptiveExtension();
+    private final ProxyFactory proxyFactory;
     private final static Map<String, Invoker<?>> MOCK_MAP = new ConcurrentHashMap<String, Invoker<?>>();
     private final static Map<String, Throwable> THROWABLE_MAP = new ConcurrentHashMap<String, Throwable>();
 
@@ -58,6 +56,7 @@ final public class MockInvoker<T> implements Invoker<T> {
     public MockInvoker(URL url, Class<T> type) {
         this.url = url;
         this.type = type;
+        this.proxyFactory = url.getOrDefaultFrameworkModel().getExtensionLoader(ProxyFactory.class).getAdaptiveExtension();
     }
 
     public static Object parseMockValue(String mock) throws Exception {
@@ -65,7 +64,7 @@ final public class MockInvoker<T> implements Invoker<T> {
     }
 
     public static Object parseMockValue(String mock, Type[] returnTypes) throws Exception {
-        Object value = null;
+        Object value;
         if ("empty".equals(mock)) {
             value = ReflectUtils.getEmptyObject(returnTypes != null && returnTypes.length > 0 ? (Class<?>) returnTypes[0] : null);
         } else if ("null".equals(mock)) {
@@ -75,16 +74,16 @@ final public class MockInvoker<T> implements Invoker<T> {
         } else if ("false".equals(mock)) {
             value = false;
         } else if (mock.length() >= 2 && (mock.startsWith("\"") && mock.endsWith("\"")
-                || mock.startsWith("\'") && mock.endsWith("\'"))) {
+            || mock.startsWith("\'") && mock.endsWith("\'"))) {
             value = mock.subSequence(1, mock.length() - 1);
         } else if (returnTypes != null && returnTypes.length > 0 && returnTypes[0] == String.class) {
             value = mock;
         } else if (StringUtils.isNumeric(mock, false)) {
-            value = JSON.parse(mock);
+            value = JsonUtils.getJson().toJavaObject(mock, Object.class);
         } else if (mock.startsWith("{")) {
-            value = JSON.parseObject(mock, Map.class);
+            value = JsonUtils.getJson().toJavaObject(mock, Map.class);
         } else if (mock.startsWith("[")) {
-            value = JSON.parseObject(mock, List.class);
+            value = JsonUtils.getJson().toJavaList(mock, Object.class);
         } else {
             value = mock;
         }
@@ -99,13 +98,7 @@ final public class MockInvoker<T> implements Invoker<T> {
         if (invocation instanceof RpcInvocation) {
             ((RpcInvocation) invocation).setInvoker(this);
         }
-        String mock = null;
-        if (getUrl().hasMethodParameter(invocation.getMethodName())) {
-            mock = getUrl().getParameter(invocation.getMethodName() + "." + MOCK_KEY);
-        }
-        if (StringUtils.isBlank(mock)) {
-            mock = getUrl().getParameter(MOCK_KEY);
-        }
+        String mock = getUrl().getMethodParameter(invocation.getMethodName(), MOCK_KEY);
 
         if (StringUtils.isBlank(mock)) {
             throw new RpcException(new IllegalAccessException("mock can not be null. url :" + url));
@@ -119,7 +112,7 @@ final public class MockInvoker<T> implements Invoker<T> {
                 return AsyncRpcResult.newDefaultAsyncResult(value, invocation);
             } catch (Exception ew) {
                 throw new RpcException("mock return invoke error. method :" + invocation.getMethodName()
-                        + ", mock:" + mock + ", url: " + url, ew);
+                    + ", mock:" + mock + ", url: " + url, ew);
             }
         } else if (mock.startsWith(THROW_PREFIX)) {
             mock = mock.substring(THROW_PREFIX.length()).trim();
@@ -169,8 +162,8 @@ final public class MockInvoker<T> implements Invoker<T> {
             return invoker;
         }
 
-        T mockObject = (T) getMockObject(mock, serviceType);
-        invoker = PROXY_FACTORY.getInvoker(mockObject, serviceType, url);
+        T mockObject = (T) getMockObject(url.getOrDefaultApplicationModel().getExtensionDirector(), mock, serviceType);
+        invoker = proxyFactory.getInvoker(mockObject, serviceType, url);
         if (MOCK_MAP.size() < 10000) {
             MOCK_MAP.put(mockService, invoker);
         }
@@ -178,7 +171,7 @@ final public class MockInvoker<T> implements Invoker<T> {
     }
 
     @SuppressWarnings("unchecked")
-    public static Object getMockObject(String mockService, Class serviceType) {
+    public static Object getMockObject(ExtensionDirector extensionDirector, String mockService, Class serviceType) {
         boolean isDefault = ConfigUtils.isDefault(mockService);
         if (isDefault) {
             mockService = serviceType.getName() + "Mock";
@@ -190,20 +183,20 @@ final public class MockInvoker<T> implements Invoker<T> {
         } catch (Exception e) {
             if (!isDefault) {// does not check Spring bean if it is default config.
                 ExtensionInjector extensionFactory =
-                        ExtensionLoader.getExtensionLoader(ExtensionInjector.class).getAdaptiveExtension();
+                    extensionDirector.getExtensionLoader(ExtensionInjector.class).getAdaptiveExtension();
                 Object obj = extensionFactory.getInstance(serviceType, mockService);
                 if (obj != null) {
                     return obj;
                 }
             }
             throw new IllegalStateException("Did not find mock class or instance "
-                    + mockService
-                    + ", please check if there's mock class or instance implementing interface "
-                    + serviceType.getName(), e);
+                + mockService
+                + ", please check if there's mock class or instance implementing interface "
+                + serviceType.getName(), e);
         }
         if (mockClass == null || !serviceType.isAssignableFrom(mockClass)) {
             throw new IllegalStateException("The mock class " + mockClass.getName() +
-                    " not implement interface " + serviceType.getName());
+                " not implement interface " + serviceType.getName());
         }
 
         try {

@@ -17,7 +17,7 @@
 package org.apache.dubbo.metadata.report.support;
 
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.metadata.report.MetadataReport;
 import org.apache.dubbo.metadata.report.MetadataReportFactory;
@@ -27,24 +27,24 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static org.apache.dubbo.common.constants.CommonConstants.CHECK_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_UNEXPECTED_EXCEPTION;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROXY_FAILED_EXPORT_SERVICE;
 
 public abstract class AbstractMetadataReportFactory implements MetadataReportFactory {
 
-    private static final Logger logger = LoggerFactory.getLogger(AbstractMetadataReportFactory.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(AbstractMetadataReportFactory.class);
     private static final String EXPORT_KEY = "export";
     private static final String REFER_KEY = "refer";
 
     /**
      * The lock for the acquisition process of the registry
      */
-    private static final ReentrantLock LOCK = new ReentrantLock();
+    private final ReentrantLock lock = new ReentrantLock();
 
     /**
      * Registry Collection Map<metadataAddress, MetadataReport>
      */
-    private static final Map<String, MetadataReport> SERVICE_STORE_MAP = new ConcurrentHashMap<>();
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(AbstractMetadataReportFactory.class);
+    private final Map<String, MetadataReport> serviceStoreMap = new ConcurrentHashMap<>();
 
     @Override
     public MetadataReport getMetadataReport(URL url) {
@@ -52,15 +52,15 @@ public abstract class AbstractMetadataReportFactory implements MetadataReportFac
             .removeParameters(EXPORT_KEY, REFER_KEY);
         String key = url.toServiceString();
 
-        MetadataReport metadataReport = SERVICE_STORE_MAP.get(key);
+        MetadataReport metadataReport = serviceStoreMap.get(key);
         if (metadataReport != null) {
             return metadataReport;
         }
 
         // Lock the metadata access process to ensure a single instance of the metadata instance
-        LOCK.lock();
+        lock.lock();
         try {
-            metadataReport = SERVICE_STORE_MAP.get(key);
+            metadataReport = serviceStoreMap.get(key);
             if (metadataReport != null) {
                 return metadataReport;
             }
@@ -69,7 +69,7 @@ public abstract class AbstractMetadataReportFactory implements MetadataReportFac
                 metadataReport = createMetadataReport(url);
             } catch (Exception e) {
                 if (!check) {
-                    LOGGER.warn("The metadata reporter failed to initialize", e);
+                    logger.warn(PROXY_FAILED_EXPORT_SERVICE, "", "", "The metadata reporter failed to initialize", e);
                 } else {
                     throw e;
                 }
@@ -79,31 +79,31 @@ public abstract class AbstractMetadataReportFactory implements MetadataReportFac
                 throw new IllegalStateException("Can not create metadata Report " + url);
             }
             if (metadataReport != null) {
-                SERVICE_STORE_MAP.put(key, metadataReport);
+                serviceStoreMap.put(key, metadataReport);
             }
             return metadataReport;
         } finally {
             // Release the lock
-            LOCK.unlock();
+            lock.unlock();
         }
     }
 
-    public static void destroy() {
-        LOCK.lock();
+    @Override
+    public void destroy() {
+        lock.lock();
         try {
-            for (MetadataReport metadataReport : SERVICE_STORE_MAP.values()) {
-                try{
+            for (MetadataReport metadataReport : serviceStoreMap.values()) {
+                try {
                     metadataReport.destroy();
-                }catch (Throwable ignored){
+                } catch (Throwable ignored) {
                     // ignored
-                    logger.warn(ignored.getMessage(),ignored);
+                    logger.warn(COMMON_UNEXPECTED_EXCEPTION, "", "", ignored.getMessage(), ignored);
                 }
             }
-            SERVICE_STORE_MAP.clear();
+            serviceStoreMap.clear();
         } finally {
-            LOCK.unlock();
+            lock.unlock();
         }
-
     }
 
     protected abstract MetadataReport createMetadataReport(URL url);

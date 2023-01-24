@@ -19,9 +19,10 @@ package org.apache.dubbo.config.spring.boot.importxml2;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.ReferenceBean;
-import org.apache.dubbo.config.spring.reference.ReferenceBeanManager;
 import org.apache.dubbo.config.spring.api.HelloService;
 import org.apache.dubbo.config.spring.context.annotation.DubboComponentScan;
+import org.apache.dubbo.config.spring.reference.ReferenceBeanManager;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -48,7 +49,7 @@ import java.util.Map;
 @ComponentScan
 @DubboComponentScan
 @ImportResource("classpath:/org/apache/dubbo/config/spring/boot/importxml2/dubbo-provider.xml")
-public class SpringBootImportAndScanTest implements ApplicationContextAware {
+class SpringBootImportAndScanTest implements ApplicationContextAware {
 
     private ApplicationContext applicationContext;
 
@@ -66,7 +67,7 @@ public class SpringBootImportAndScanTest implements ApplicationContextAware {
     private HelloService helloService;
 
     @Test
-    public void testProvider() {
+    void testProvider() {
 
         String result = helloService.sayHello("dubbo");
         Assertions.assertEquals("Hello, dubbo", result);

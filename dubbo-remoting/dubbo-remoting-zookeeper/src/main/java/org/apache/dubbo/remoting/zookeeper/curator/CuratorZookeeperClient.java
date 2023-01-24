@@ -18,16 +18,19 @@ package org.apache.dubbo.remoting.zookeeper.curator;
 
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.config.configcenter.ConfigItem;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.NamedThreadFactory;
+import org.apache.dubbo.common.utils.StringUtils;
+import org.apache.dubbo.remoting.zookeeper.AbstractZookeeperClient;
 import org.apache.dubbo.remoting.zookeeper.ChildListener;
 import org.apache.dubbo.remoting.zookeeper.DataListener;
 import org.apache.dubbo.remoting.zookeeper.EventType;
 import org.apache.dubbo.remoting.zookeeper.StateListener;
-import org.apache.dubbo.remoting.zookeeper.AbstractZookeeperClient;
 
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.framework.api.ACLProvider;
 import org.apache.curator.framework.api.CuratorWatcher;
 import org.apache.curator.framework.recipes.cache.ChildData;
 import org.apache.curator.framework.recipes.cache.NodeCache;
@@ -40,6 +43,8 @@ import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.KeeperException.NodeExistsException;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooDefs;
+import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Stat;
 
 import java.nio.charset.Charset;
@@ -48,40 +53,79 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import static org.apache.dubbo.common.constants.CommonConstants.SESSION_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.TIMEOUT_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CONFIG_FAILED_CONNECT_REGISTRY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.REGISTRY_ZOOKEEPER_EXCEPTION;
 
 
 public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZookeeperClient.NodeCacheListenerImpl, CuratorZookeeperClient.CuratorWatcherImpl> {
 
-    protected static final Logger logger = LoggerFactory.getLogger(CuratorZookeeperClient.class);
-    private static final String ZK_SESSION_EXPIRE_KEY = "zk.session.expire";
+    protected static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(CuratorZookeeperClient.class);
 
     private static final Charset CHARSET = StandardCharsets.UTF_8;
     private final CuratorFramework client;
-    private static Map<String, NodeCache> nodeCacheMap = new ConcurrentHashMap<>();
+    private static final Map<String, NodeCache> nodeCacheMap = new ConcurrentHashMap<>();
 
     public CuratorZookeeperClient(URL url) {
         super(url);
         try {
             int timeout = url.getParameter(TIMEOUT_KEY, DEFAULT_CONNECTION_TIMEOUT_MS);
-            int sessionExpireMs = url.getParameter(ZK_SESSION_EXPIRE_KEY, DEFAULT_SESSION_TIMEOUT_MS);
+            int sessionExpireMs = url.getParameter(SESSION_KEY, DEFAULT_SESSION_TIMEOUT_MS);
             CuratorFrameworkFactory.Builder builder = CuratorFrameworkFactory.builder()
-                    .connectString(url.getBackupAddress())
-                    .retryPolicy(new RetryNTimes(1, 1000))
-                    .connectionTimeoutMs(timeout)
-                    .sessionTimeoutMs(sessionExpireMs);
-            String authority = url.getAuthority();
-            if (authority != null && authority.length() > 0) {
-                builder = builder.authorization("digest", authority.getBytes());
+                .connectString(url.getBackupAddress())
+                .retryPolicy(new RetryNTimes(1, 1000))
+                .connectionTimeoutMs(timeout)
+                .sessionTimeoutMs(sessionExpireMs);
+            String userInformation = url.getUserInformation();
+            if (StringUtils.isNotEmpty(userInformation)) {
+                builder = builder.authorization("digest", userInformation.getBytes());
+                builder.aclProvider(new ACLProvider() {
+                    @Override
+                    public List<ACL> getDefaultAcl() {
+                        return ZooDefs.Ids.CREATOR_ALL_ACL;
+                    }
+
+                    @Override
+                    public List<ACL> getAclForPath(String path) {
+                        return ZooDefs.Ids.CREATOR_ALL_ACL;
+                    }
+                });
             }
             client = builder.build();
             client.getConnectionStateListenable().addListener(new CuratorConnectionStateListener(url));
             client.start();
+
             boolean connected = client.blockUntilConnected(timeout, TimeUnit.MILLISECONDS);
             if (!connected) {
-                throw new IllegalStateException("zookeeper not connected");
+                IllegalStateException illegalStateException = new IllegalStateException("zookeeper not connected, the address is: " + url);
+
+                // 5-1 Failed to connect to configuration center.
+                logger.error(CONFIG_FAILED_CONNECT_REGISTRY, "Zookeeper server offline", "",
+                    "Failed to connect with zookeeper", illegalStateException);
+
+                throw illegalStateException;
+            }
+
+            CuratorWatcherImpl.closed = false;
+        } catch (Exception e) {
+            close();
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void createPersistent(String path, boolean faultTolerant) {
+        try {
+            client.create().forPath(path);
+        } catch (NodeExistsException e) {
+            if (!faultTolerant) {
+                logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "ZNode " + path + " already exists.", e);
+                throw new IllegalStateException(e.getMessage(), e);
             }
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage(), e);
@@ -89,42 +133,42 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
     }
 
     @Override
-    public void createPersistent(String path) {
-        try {
-            client.create().forPath(path);
-        } catch (NodeExistsException e) {
-            logger.warn("ZNode " + path + " already exists.", e);
-        } catch (Exception e) {
-            throw new IllegalStateException(e.getMessage(), e);
-        }
-    }
-
-    @Override
-    public void createEphemeral(String path) {
+    public void createEphemeral(String path, boolean faultTolerant) {
         try {
             client.create().withMode(CreateMode.EPHEMERAL).forPath(path);
         } catch (NodeExistsException e) {
-            logger.warn("ZNode " + path + " already exists, since we will only try to recreate a node on a session expiration" +
+            if (faultTolerant) {
+                logger.info("ZNode " + path + " already exists, since we will only try to recreate a node on a session expiration" +
                     ", this duplication might be caused by a delete delay from the zk server, which means the old expired session" +
                     " may still holds this ZNode and the server just hasn't got time to do the deletion. In this case, " +
-                    "we can just try to delete and create again.", e);
-            deletePath(path);
-            createEphemeral(path);
+                    "we can just try to delete and create again.");
+                deletePath(path);
+                createEphemeral(path, true);
+            } else {
+                logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "ZNode " + path + " already exists.", e);
+                throw new IllegalStateException(e.getMessage(), e);
+            }
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage(), e);
         }
     }
 
     @Override
-    protected void createPersistent(String path, String data) {
+    protected void createPersistent(String path, String data, boolean faultTolerant) {
         byte[] dataBytes = data.getBytes(CHARSET);
         try {
             client.create().forPath(path, dataBytes);
         } catch (NodeExistsException e) {
-            try {
-                client.setData().forPath(path, dataBytes);
-            } catch (Exception e1) {
-                throw new IllegalStateException(e.getMessage(), e1);
+            if (faultTolerant) {
+                logger.info("ZNode " + path + " already exists. Will be override with new data.");
+                try {
+                    client.setData().forPath(path, dataBytes);
+                } catch (Exception e1) {
+                    throw new IllegalStateException(e.getMessage(), e1);
+                }
+            } else {
+                logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "ZNode " + path + " already exists.", e);
+                throw new IllegalStateException(e.getMessage(), e);
             }
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage(), e);
@@ -132,17 +176,22 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
     }
 
     @Override
-    protected void createEphemeral(String path, String data) {
+    protected void createEphemeral(String path, String data, boolean faultTolerant) {
         byte[] dataBytes = data.getBytes(CHARSET);
         try {
             client.create().withMode(CreateMode.EPHEMERAL).forPath(path, dataBytes);
         } catch (NodeExistsException e) {
-            logger.warn("ZNode " + path + " already exists, since we will only try to recreate a node on a session expiration" +
+            if (faultTolerant) {
+                logger.info("ZNode " + path + " already exists, since we will only try to recreate a node on a session expiration" +
                     ", this duplication might be caused by a delete delay from the zk server, which means the old expired session" +
                     " may still holds this ZNode and the server just hasn't got time to do the deletion. In this case, " +
-                    "we can just try to delete and create again.", e);
-            deletePath(path);
-            createEphemeral(path, data);
+                    "we can just try to delete and create again.");
+                deletePath(path);
+                createEphemeral(path, data, true);
+            } else {
+                logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "ZNode " + path + " already exists.", e);
+                throw new IllegalStateException(e.getMessage(), e);
+            }
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage(), e);
         }
@@ -159,12 +208,22 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
     }
 
     @Override
-    protected void createOrUpdatePersistent(String path, String data, int version) {
+    protected void update(String path, String data) {
+        byte[] dataBytes = data.getBytes(CHARSET);
+        try {
+            client.setData().forPath(path, dataBytes);
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    protected void createOrUpdatePersistent(String path, String data) {
         try {
             if (checkExists(path)) {
-                update(path, data, version);
+                update(path, data);
             } else {
-                createPersistent(path, data);
+                createPersistent(path, data, true);
             }
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage(), e);
@@ -172,12 +231,38 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
     }
 
     @Override
-    protected void createOrUpdateEphemeral(String path, String data, int version) {
+    protected void createOrUpdateEphemeral(String path, String data) {
         try {
             if (checkExists(path)) {
+                update(path, data);
+            } else {
+                createEphemeral(path, data, true);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    protected void createOrUpdatePersistent(String path, String data, Integer version) {
+        try {
+            if (checkExists(path) && version != null) {
                 update(path, data, version);
             } else {
-                createEphemeral(path, data);
+                createPersistent(path, data, false);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException(e.getMessage(), e);
+        }
+    }
+
+    @Override
+    protected void createOrUpdateEphemeral(String path, String data, Integer version) {
+        try {
+            if (checkExists(path) && version != null) {
+                update(path, data, version);
+            } else {
+                createEphemeral(path, data, false);
             }
         } catch (Exception e) {
             throw new IllegalStateException(e.getMessage(), e);
@@ -252,7 +337,15 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
 
     @Override
     public void doClose() {
+        super.close();
         client.close();
+        CuratorWatcherImpl.closed = true;
+        synchronized (CuratorWatcherImpl.class) {
+            if (CuratorWatcherImpl.CURATOR_WATCHER_EXECUTOR_SERVICE != null) {
+                CuratorWatcherImpl.CURATOR_WATCHER_EXECUTOR_SERVICE.shutdown();
+                CuratorWatcherImpl.CURATOR_WATCHER_EXECUTOR_SERVICE = null;
+            }
+        }
     }
 
     @Override
@@ -273,7 +366,7 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
 
     @Override
     protected CuratorZookeeperClient.NodeCacheListenerImpl createTargetDataListener(String path, DataListener listener) {
-        return new NodeCacheListenerImpl(client, listener, path);
+        return new NodeCacheListenerImpl(listener, path);
     }
 
     @Override
@@ -316,8 +409,6 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
 
     static class NodeCacheListenerImpl implements NodeCacheListener {
 
-        private CuratorFramework client;
-
         private volatile DataListener dataListener;
 
         private String path;
@@ -325,8 +416,7 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
         protected NodeCacheListenerImpl() {
         }
 
-        public NodeCacheListenerImpl(CuratorFramework client, DataListener dataListener, String path) {
-            this.client = client;
+        public NodeCacheListenerImpl(DataListener dataListener, String path) {
             this.dataListener = dataListener;
             this.path = path;
         }
@@ -338,6 +428,9 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
             EventType eventType;
             if (childData == null) {
                 eventType = EventType.NodeDeleted;
+            } else if (childData.getStat().getVersion() == 0) {
+                content = new String(childData.getData(), CHARSET);
+                eventType = EventType.NodeCreated;
             } else {
                 content = new String(childData.getData(), CHARSET);
                 eventType = EventType.NodeDataChanged;
@@ -348,9 +441,23 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
 
     static class CuratorWatcherImpl implements CuratorWatcher {
 
+        private static volatile ExecutorService CURATOR_WATCHER_EXECUTOR_SERVICE;
+
+        private static volatile boolean closed = false;
+
         private CuratorFramework client;
         private volatile ChildListener childListener;
         private String path;
+
+        private static void initExecutorIfNecessary() {
+            if (!closed && CURATOR_WATCHER_EXECUTOR_SERVICE == null) {
+                synchronized (CuratorWatcherImpl.class) {
+                    if (!closed && CURATOR_WATCHER_EXECUTOR_SERVICE == null) {
+                        CURATOR_WATCHER_EXECUTOR_SERVICE = Executors.newSingleThreadExecutor(new NamedThreadFactory("Dubbo-CuratorWatcher"));
+                    }
+                }
+            }
+        }
 
         public CuratorWatcherImpl(CuratorFramework client, ChildListener listener, String path) {
             this.client = client;
@@ -374,21 +481,30 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
             }
 
             if (childListener != null) {
-                childListener.childChanged(path, client.getChildren().usingWatcher(this).forPath(path));
+                Runnable task = () -> {
+                    try {
+                        childListener.childChanged(path, client.getChildren().usingWatcher(CuratorWatcherImpl.this).forPath(path));
+                    } catch (Exception e) {
+                        logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "client get children error", e);
+                    }
+                };
+                initExecutorIfNecessary();
+                if (!closed && CURATOR_WATCHER_EXECUTOR_SERVICE != null) {
+                    CURATOR_WATCHER_EXECUTOR_SERVICE.execute(task);
+                }
             }
         }
     }
 
     private class CuratorConnectionStateListener implements ConnectionStateListener {
         private final long UNKNOWN_SESSION_ID = -1L;
-
         private long lastSessionId;
         private int timeout;
         private int sessionExpireMs;
 
         public CuratorConnectionStateListener(URL url) {
             this.timeout = url.getParameter(TIMEOUT_KEY, DEFAULT_CONNECTION_TIMEOUT_MS);
-            this.sessionExpireMs = url.getParameter(ZK_SESSION_EXPIRE_KEY, DEFAULT_SESSION_TIMEOUT_MS);
+            this.sessionExpireMs = url.getParameter(SESSION_KEY, DEFAULT_SESSION_TIMEOUT_MS);
         }
 
         @Override
@@ -397,15 +513,15 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
             try {
                 sessionId = client.getZookeeperClient().getZooKeeper().getSessionId();
             } catch (Exception e) {
-                logger.warn("Curator client state changed, but failed to get the related zk session instance.");
+                logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "Curator client state changed, but failed to get the related zk session instance.");
             }
 
             if (state == ConnectionState.LOST) {
-                logger.warn("Curator zookeeper session " + Long.toHexString(lastSessionId) + " expired.");
+                logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "Curator zookeeper session " + Long.toHexString(lastSessionId) + " expired.");
                 CuratorZookeeperClient.this.stateChanged(StateListener.SESSION_LOST);
             } else if (state == ConnectionState.SUSPENDED) {
-                logger.warn("Curator zookeeper connection of session " + Long.toHexString(sessionId) + " timed out. " +
-                        "connection timeout value is " + timeout + ", session expire timeout value is " + sessionExpireMs);
+                logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "Curator zookeeper connection of session " + Long.toHexString(sessionId) + " timed out. " +
+                    "connection timeout value is " + timeout + ", session expire timeout value is " + sessionExpireMs);
                 CuratorZookeeperClient.this.stateChanged(StateListener.SUSPENDED);
             } else if (state == ConnectionState.CONNECTED) {
                 lastSessionId = sessionId;
@@ -413,18 +529,17 @@ public class CuratorZookeeperClient extends AbstractZookeeperClient<CuratorZooke
                 CuratorZookeeperClient.this.stateChanged(StateListener.CONNECTED);
             } else if (state == ConnectionState.RECONNECTED) {
                 if (lastSessionId == sessionId && sessionId != UNKNOWN_SESSION_ID) {
-                    logger.warn("Curator zookeeper connection recovered from connection lose, " +
-                            "reuse the old session " + Long.toHexString(sessionId));
+                    logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "Curator zookeeper connection recovered from connection lose, " +
+                        "reuse the old session " + Long.toHexString(sessionId));
                     CuratorZookeeperClient.this.stateChanged(StateListener.RECONNECTED);
                 } else {
-                    logger.warn("New session created after old session lost, " +
-                            "old session " + Long.toHexString(lastSessionId) + ", new session " + Long.toHexString(sessionId));
+                    logger.warn(REGISTRY_ZOOKEEPER_EXCEPTION, "", "", "New session created after old session lost, " +
+                        "old session " + Long.toHexString(lastSessionId) + ", new session " + Long.toHexString(sessionId));
                     lastSessionId = sessionId;
                     CuratorZookeeperClient.this.stateChanged(StateListener.NEW_SESSION_CREATED);
                 }
             }
         }
-
     }
 
     /**

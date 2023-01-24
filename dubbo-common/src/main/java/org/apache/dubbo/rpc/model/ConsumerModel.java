@@ -17,7 +17,6 @@
 package org.apache.dubbo.rpc.model;
 
 import org.apache.dubbo.common.utils.Assert;
-import org.apache.dubbo.config.ReferenceConfigBase;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -25,6 +24,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
@@ -39,7 +39,7 @@ public class ConsumerModel extends ServiceModel {
     private Map<Method, ConsumerMethodModel> methodModels = new HashMap<>();
 
     /**
-     * This constructor create an instance of ConsumerModel and passed objects should not be null.
+     * This constructor creates an instance of ConsumerModel and passed objects should not be null.
      * If service name, service instance, proxy object,methods should not be null. If these are null
      * then this constructor will throw {@link IllegalArgumentException}
      *
@@ -48,11 +48,11 @@ public class ConsumerModel extends ServiceModel {
      */
     public ConsumerModel(String serviceKey,
                          Object proxyObject,
-                         ServiceDescriptor serviceModel,
-                         ReferenceConfigBase<?> referenceConfig,
-                         Map<String, AsyncMethodInfo> methodConfigs) {
+                         ServiceDescriptor serviceDescriptor,
+                         Map<String, AsyncMethodInfo> methodConfigs,
+                         ClassLoader interfaceClassLoader) {
 
-        super(proxyObject, serviceKey, serviceModel, referenceConfig);
+        super(proxyObject, serviceKey, serviceDescriptor, null, interfaceClassLoader);
         Assert.notEmptyString(serviceKey, "Service name can't be null or blank");
 
         this.methodConfigs = methodConfigs == null ? new HashMap<>() : methodConfigs;
@@ -60,12 +60,12 @@ public class ConsumerModel extends ServiceModel {
 
     public ConsumerModel(String serviceKey,
                          Object proxyObject,
-                         ServiceDescriptor serviceModel,
-                         ReferenceConfigBase<?> referenceConfig,
+                         ServiceDescriptor serviceDescriptor,
                          ServiceMetadata metadata,
-                         Map<String, AsyncMethodInfo> methodConfigs) {
+                         Map<String, AsyncMethodInfo> methodConfigs,
+                         ClassLoader interfaceClassLoader) {
 
-        super(proxyObject, serviceKey, serviceModel, referenceConfig, metadata);
+        super(proxyObject, serviceKey, serviceDescriptor, null, metadata, interfaceClassLoader);
         Assert.notEmptyString(serviceKey, "Service name can't be null or blank");
 
         this.methodConfigs = methodConfigs == null ? new HashMap<>() : methodConfigs;
@@ -73,13 +73,13 @@ public class ConsumerModel extends ServiceModel {
 
     public ConsumerModel(String serviceKey,
                          Object proxyObject,
-                         ServiceDescriptor serviceModel,
-                         ReferenceConfigBase<?> referenceConfig,
+                         ServiceDescriptor serviceDescriptor,
                          ModuleModel moduleModel,
                          ServiceMetadata metadata,
-                         Map<String, AsyncMethodInfo> methodConfigs) {
+                         Map<String, AsyncMethodInfo> methodConfigs,
+                         ClassLoader interfaceClassLoader) {
+        super(proxyObject, serviceKey, serviceDescriptor, moduleModel, metadata, interfaceClassLoader);
 
-        super(proxyObject, serviceKey, serviceModel, referenceConfig, moduleModel, metadata);
         Assert.notEmptyString(serviceKey, "Service name can't be null or blank");
 
         this.methodConfigs = methodConfigs == null ? new HashMap<>() : methodConfigs;
@@ -100,7 +100,7 @@ public class ConsumerModel extends ServiceModel {
     public void initMethodModels() {
         Class<?>[] interfaceList;
         if (getProxyObject() == null) {
-            Class<?> serviceInterfaceClass = getReferenceConfig().getServiceInterfaceClass();
+            Class<?> serviceInterfaceClass = getServiceInterfaceClass();
             if (serviceInterfaceClass != null) {
                 interfaceList = new Class[]{serviceInterfaceClass};
             } else {
@@ -157,5 +157,25 @@ public class ConsumerModel extends ServiceModel {
      */
     public List<ConsumerMethodModel> getAllMethodModels() {
         return new ArrayList<>(methodModels.values());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        ConsumerModel that = (ConsumerModel) o;
+        return Objects.equals(apps, that.apps) && Objects.equals(methodConfigs, that.methodConfigs) && Objects.equals(methodModels, that.methodModels);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), apps, methodConfigs, methodModels);
     }
 }

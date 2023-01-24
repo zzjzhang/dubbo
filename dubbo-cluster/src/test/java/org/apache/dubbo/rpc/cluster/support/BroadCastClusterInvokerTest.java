@@ -24,6 +24,7 @@ import org.apache.dubbo.rpc.RpcException;
 import org.apache.dubbo.rpc.RpcInvocation;
 import org.apache.dubbo.rpc.cluster.Directory;
 import org.apache.dubbo.rpc.cluster.filter.DemoService;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +39,7 @@ import static org.mockito.Mockito.mock;
 /**
  * @see BroadcastClusterInvoker
  */
-public class BroadCastClusterInvokerTest {
+class BroadCastClusterInvokerTest {
     private URL url;
     private Directory<DemoService> dic;
     private RpcInvocation invocation;
@@ -73,7 +74,7 @@ public class BroadCastClusterInvokerTest {
 
 
     @Test
-    public void testNormal() {
+    void testNormal() {
         given(dic.list(invocation)).willReturn(Arrays.asList(invoker1, invoker2, invoker3, invoker4));
         // Every invoker will be called
         clusterInvoker.invoke(invocation);
@@ -84,7 +85,7 @@ public class BroadCastClusterInvokerTest {
     }
 
     @Test
-    public void testEx() {
+    void testEx() {
         given(dic.list(invocation)).willReturn(Arrays.asList(invoker1, invoker2, invoker3, invoker4));
         invoker1.invokeThrowEx();
         assertThrows(RpcException.class, () -> {
@@ -98,7 +99,7 @@ public class BroadCastClusterInvokerTest {
     }
 
     @Test
-    public void testFailPercent() {
+    void testFailPercent() {
         given(dic.list(invocation)).willReturn(Arrays.asList(invoker1, invoker2, invoker3, invoker4));
         // We set the failure percentage to 75, which means that when the number of call failures is 4*(75/100) = 3,
         // an exception will be thrown directly and subsequent invokers will not be called.

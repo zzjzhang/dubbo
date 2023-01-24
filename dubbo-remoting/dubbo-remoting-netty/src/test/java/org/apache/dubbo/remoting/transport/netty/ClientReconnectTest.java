@@ -25,6 +25,7 @@ import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.RemotingServer;
 import org.apache.dubbo.remoting.exchange.Exchangers;
 import org.apache.dubbo.remoting.exchange.support.ExchangeHandlerAdapter;
+import org.apache.dubbo.rpc.model.FrameworkModel;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +34,7 @@ import org.junit.jupiter.api.Test;
 /**
  * Client reconnect test
  */
-public class ClientReconnectTest {
+class ClientReconnectTest {
 
     @BeforeEach
     public void clear() {
@@ -41,7 +42,7 @@ public class ClientReconnectTest {
     }
 
     @Test
-    public void testReconnect() throws RemotingException, InterruptedException {
+    void testReconnect() throws RemotingException, InterruptedException {
         {
             int port = NetUtils.getAvailablePort();
             Client client = startClient(port, 200);
@@ -70,7 +71,7 @@ public class ClientReconnectTest {
 
 
     public Client startClient(int port, int heartbeat) throws RemotingException {
-        final String url = "exchange://127.0.0.1:" + port + "/client.reconnect.test?check=false&client=netty3&" +
+        final String url = "exchange://127.0.0.1:" + port + "/client.reconnect.test?check=false&codec=exchange&client=netty3&" +
                 Constants.HEARTBEAT_KEY + "=" + heartbeat;
         return Exchangers.connect(url);
     }
@@ -81,6 +82,10 @@ public class ClientReconnectTest {
     }
 
     static class HandlerAdapter extends ExchangeHandlerAdapter {
+        public HandlerAdapter() {
+            super(FrameworkModel.defaultModel());
+        }
+
         @Override
         public void connected(Channel channel) throws RemotingException {
         }

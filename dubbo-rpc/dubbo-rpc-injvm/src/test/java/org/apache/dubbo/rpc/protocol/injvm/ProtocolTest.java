@@ -21,6 +21,7 @@ import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Protocol;
 import org.apache.dubbo.rpc.ProxyFactory;
+import org.apache.dubbo.rpc.model.FrameworkModel;
 
 import org.junit.jupiter.api.Test;
 
@@ -28,7 +29,7 @@ import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-public class ProtocolTest {
+class ProtocolTest {
 
     IEcho echo = new IEcho() {
         public String echo(String e) {
@@ -37,7 +38,7 @@ public class ProtocolTest {
     };
 
     static {
-        InjvmProtocol injvm = InjvmProtocol.getInjvmProtocol();
+        InjvmProtocol injvm = InjvmProtocol.getInjvmProtocol(FrameworkModel.defaultModel());
     }
 
     ProxyFactory proxyFactory = ExtensionLoader.getExtensionLoader(ProxyFactory.class).getExtension("javassist");
@@ -47,7 +48,7 @@ public class ProtocolTest {
     Invoker<IEcho> invoker = proxyFactory.getInvoker(echo, IEcho.class, url);
 
     @Test
-    public void test_destroyWontCloseAllProtocol() throws Exception {
+    void test_destroyWontCloseAllProtocol() throws Exception {
         Protocol autowireProtocol = ExtensionLoader.getExtensionLoader(Protocol.class).getAdaptiveExtension();
 
         Protocol InjvmProtocol = ExtensionLoader.getExtensionLoader(Protocol.class).getExtension("injvm");

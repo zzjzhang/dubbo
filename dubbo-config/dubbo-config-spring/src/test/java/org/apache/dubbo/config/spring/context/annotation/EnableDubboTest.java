@@ -22,6 +22,7 @@ import org.apache.dubbo.config.spring.api.DemoService;
 import org.apache.dubbo.config.spring.beans.factory.annotation.ServiceAnnotationTestConfiguration;
 import org.apache.dubbo.config.spring.context.annotation.consumer.test.TestConsumerConfiguration;
 import org.apache.dubbo.config.spring.context.annotation.provider.DemoServiceImpl;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,7 +48,7 @@ import static org.springframework.core.annotation.AnnotationUtils.findAnnotation
  *
  * @since 2.5.8
  */
-public class EnableDubboTest {
+class EnableDubboTest {
 
     private AnnotationConfigApplicationContext context;
 
@@ -64,7 +65,7 @@ public class EnableDubboTest {
     }
 
     @Test
-    public void testProvider() {
+    void testProvider() {
 
         context.register(TestProviderConfiguration.class);
 
@@ -87,7 +88,7 @@ public class EnableDubboTest {
     }
 
     @Test
-    public void testConsumer() {
+    void testConsumer() {
 
         context.register(TestProviderConfiguration.class, TestConsumerConfiguration.class);
         context.refresh();

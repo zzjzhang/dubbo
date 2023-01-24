@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertNotSame;
  *
  * @since 2.7.5
  */
-public class DefaultServiceInstanceTest {
+class DefaultServiceInstanceTest {
 
     public DefaultServiceInstance instance;
 
@@ -61,7 +61,7 @@ public class DefaultServiceInstanceTest {
     }
 
     @Test
-    public void testSetAndGetValues() {
+    void testSetAndGetValues() {
         instance.setEnabled(false);
         instance.setHealthy(false);
 
@@ -74,7 +74,7 @@ public class DefaultServiceInstanceTest {
     }
 
     @Test
-    public void testInstanceOperations() {
+    void testInstanceOperations() {
         // test multiple protocols
         assertEquals(2, instance.getEndpoints().size());
         DefaultServiceInstance.Endpoint endpoint = getEndpoint(instance, "rest");
@@ -87,7 +87,7 @@ public class DefaultServiceInstanceTest {
         Map<String, String> allParams = instance.getAllParams();
         assertEquals(instance.getMetadata().size(), allParams.size());
         assertEquals("dubbo", allParams.get("site"));
-        instance.getExtendParams().put("key", "value");
+        instance.putExtendParam("key", "value");
         Map<String, String> allParams2 = instance.getAllParams();
         assertNotSame(allParams, allParams2);
         assertEquals(instance.getMetadata().size() + instance.getExtendParams().size(), allParams2.size());

@@ -28,6 +28,9 @@
 
     <artifactId>dubbo-demo-native-consumer</artifactId>
 
+    <properties>
+        <skip_maven_deploy>true</skip_maven_deploy>
+    </properties>
 
     <dependencies>
 
@@ -50,10 +53,6 @@
         </dependency>
         <dependency>
             <groupId>org.apache.dubbo</groupId>
-            <artifactId>dubbo-configcenter-zookeeper</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.dubbo</groupId>
             <artifactId>dubbo-rpc-dubbo</artifactId>
         </dependency>
         <dependency>
@@ -64,13 +63,33 @@
             <groupId>org.apache.dubbo</groupId>
             <artifactId>dubbo-serialization-hessian2</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-serialization-fastjson2</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-filter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-filter-validation</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.dubbo</groupId>
+            <artifactId>dubbo-remoting-http</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.dubbo</groupId>
             <artifactId>dubbo-native</artifactId>
-            <version>${project.version}</version>
         </dependency>
-
 
     </dependencies>
 
@@ -94,6 +113,19 @@
             <build>
                 <plugins>
                     <plugin>
+                        <groupId>org.apache.dubbo</groupId>
+                        <artifactId>dubbo-native-plugin</artifactId>
+                        <version>${project.version}</version>
+                        <executions>
+                            <execution>
+                                <phase>process-sources</phase>
+                                <goals>
+                                    <goal>generate</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-compiler-plugin</artifactId>
                         <version>3.7.0</version>
@@ -105,7 +137,7 @@
                             <encoding>UTF-8</encoding>
                             <compilerArguments>
                                 <sourcepath>
-                                    ${project.basedir}/src/main/java
+                                    ${project.basedir}${file.separator}src${file.separator}main${file.separator}java
                                 </sourcepath>
                             </compilerArguments>
                         </configuration>
@@ -142,6 +174,7 @@
                                 --initialize-at-build-time=org.slf4j.impl.Log4jLoggerFactory
                                 --initialize-at-build-time=org.slf4j.impl.Log4jLoggerAdapter
                                 --initialize-at-build-time=org.eclipse.collections.api.factory.Sets
+                                --initialize-at-build-time=io.netty.util.internal.logging.Log4JLogger
 
 
                                 --initialize-at-run-time=io.netty.channel.epoll.Epoll
@@ -155,14 +188,22 @@
                                 --initialize-at-run-time=io.netty.channel.unix.Errors
                                 --initialize-at-run-time=io.netty.channel.unix.IovArray
                                 --initialize-at-run-time=io.netty.channel.unix.Limits
-                                --initialize-at-run-time=io.netty.util.internal.logging.Log4JLogger
                                 --initialize-at-run-time=io.netty.channel.unix.Socket
                                 --initialize-at-run-time=io.netty.channel.ChannelHandlerMask
+                                --initialize-at-run-time=io.netty.internal.tcnative.CertificateVerifier
+                                --initialize-at-run-time=io.netty.internal.tcnative.AsyncSSLPrivateKeyMethod
+                                --initialize-at-run-time=io.netty.handler.ssl.ReferenceCountedOpenSslEngine
+                                --initialize-at-run-time=io.netty.handler.ssl.OpenSslPrivateKeyMethod
+                                --initialize-at-run-time=io.netty.internal.tcnative.CertificateVerifier
+                                --initialize-at-run-time=io.netty.internal.tcnative.SSL
+                                --initialize-at-run-time=io.netty.handler.ssl.OpenSslAsyncPrivateKeyMethod
+                                --initialize-at-run-time=io.netty.internal.tcnative.SSLPrivateKeyMethod
 
                                 --report-unsupported-elements-at-runtime
                                 --allow-incomplete-classpath
                                 --enable-url-protocols=http
                                 -H:+ReportExceptionStackTraces
+                                -H:+AllowJRTFileSystem
                             </buildArgs>
                         </configuration>
                     </plugin>

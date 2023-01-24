@@ -14,7 +14,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package org.apache.dubbo.rpc.protocol.tri;
+
+import org.apache.dubbo.common.utils.ConcurrentHashMapUtils;
 
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.BytesValue;
@@ -40,17 +43,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class SingleProtobufUtils {
-    private static final ConcurrentHashMap<Class<?>, Message> instCache = new ConcurrentHashMap<>();
-    private static final ExtensionRegistryLite globalRegistry =
-        ExtensionRegistryLite.getEmptyRegistry();
-    private static final ConcurrentMap<Class<?>, SingleMessageMarshaller<?>> marshallers = new ConcurrentHashMap<>();
-
-    static boolean isSupported(Class<?> clazz) {
-        if (clazz == null) {
-            return false;
-        }
-        return MessageLite.class.isAssignableFrom(clazz);
-    }
+    private static final ConcurrentHashMap<Class<?>, Message> INST_CACHE = new ConcurrentHashMap<>();
+    private static final ExtensionRegistryLite GLOBAL_REGISTRY = ExtensionRegistryLite.getEmptyRegistry();
+    private static final ConcurrentMap<Class<?>, SingleMessageMarshaller<?>> MARSHALLER_CACHE = new ConcurrentHashMap<>();
 
     static {
         // Built-in types need to be registered in advance
@@ -66,13 +61,20 @@ public class SingleProtobufUtils {
         marshaller(ListValue.getDefaultInstance());
     }
 
+    static boolean isSupported(Class<?> clazz) {
+        if (clazz == null) {
+            return false;
+        }
+        return MessageLite.class.isAssignableFrom(clazz);
+    }
+
     public static <T extends MessageLite> void marshaller(T defaultInstance) {
-        marshallers.put(defaultInstance.getClass(), new SingleMessageMarshaller<>(defaultInstance));
+        MARSHALLER_CACHE.put(defaultInstance.getClass(), new SingleMessageMarshaller<>(defaultInstance));
     }
 
     @SuppressWarnings("all")
     public static Message defaultInst(Class<?> clz) {
-        Message defaultInst = instCache.get(clz);
+        Message defaultInst = INST_CACHE.get(clz);
         if (defaultInst != null) {
             return defaultInst;
         }
@@ -81,7 +83,7 @@ public class SingleProtobufUtils {
         } catch (IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
             throw new RuntimeException("Create default protobuf instance failed ", e);
         }
-        instCache.put(clz, defaultInst);
+        INST_CACHE.put(clz, defaultInst);
         return defaultInst;
     }
 
@@ -110,7 +112,7 @@ public class SingleProtobufUtils {
     }
 
     private static SingleMessageMarshaller<?> getMarshaller(Class<?> clz) {
-        return marshallers.computeIfAbsent(clz, k -> new SingleMessageMarshaller(k));
+        return ConcurrentHashMapUtils.computeIfAbsent(MARSHALLER_CACHE, clz, k -> new SingleMessageMarshaller(k));
     }
 
     public static final class SingleMessageMarshaller<T extends MessageLite> {
@@ -128,7 +130,7 @@ public class SingleProtobufUtils {
         }
 
         public T parse(InputStream stream) throws InvalidProtocolBufferException {
-            return parser.parseFrom(stream, globalRegistry);
+            return parser.parseFrom(stream, GLOBAL_REGISTRY);
         }
     }
 

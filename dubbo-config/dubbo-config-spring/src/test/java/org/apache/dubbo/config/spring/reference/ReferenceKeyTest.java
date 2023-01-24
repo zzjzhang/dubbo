@@ -16,7 +16,6 @@
  */
 package org.apache.dubbo.config.spring.reference;
 
-import com.alibaba.spring.util.AnnotationUtils;
 import org.apache.dubbo.config.annotation.Argument;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.config.annotation.Method;
@@ -26,13 +25,12 @@ import org.apache.dubbo.config.spring.api.DemoService;
 import org.apache.dubbo.config.spring.api.HelloService;
 import org.apache.dubbo.config.spring.impl.DemoServiceImpl;
 import org.apache.dubbo.config.spring.impl.HelloServiceImpl;
-import org.apache.dubbo.config.spring.registrycenter.ZookeeperSingleRegistryCenter;
-import org.apache.dubbo.config.spring.registrycenter.RegistryCenter;
+
+import com.alibaba.spring.util.AnnotationUtils;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -46,21 +44,7 @@ import java.io.StringWriter;
 import java.lang.reflect.Field;
 import java.util.Map;
 
-public class ReferenceKeyTest {
-
-    private static RegistryCenter singleRegistryCenter;
-
-    @BeforeAll
-    public static void beforeAll() {
-        singleRegistryCenter = new ZookeeperSingleRegistryCenter();
-        singleRegistryCenter.startup();
-    }
-
-    @AfterAll
-    public static void afterAll() {
-        singleRegistryCenter.shutdown();
-    }
-
+class ReferenceKeyTest {
 
     @BeforeEach
     protected void setUp() {
@@ -68,7 +52,7 @@ public class ReferenceKeyTest {
     }
 
     @Test
-    public void testReferenceKey() throws Exception {
+    void testReferenceKey() throws Exception {
 
         String helloService1 = getReferenceKey("helloService");
         String helloService2 = getReferenceKey("helloService2");
@@ -114,7 +98,7 @@ public class ReferenceKeyTest {
 
 
     @Test
-    public void testConfig() {
+    void testConfig() {
 
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(ConsumerConfiguration.class);
         context.start();
@@ -127,6 +111,7 @@ public class ReferenceKeyTest {
     }
 
     @Test
+    @Disabled("support multi reference config")
     public void testConfig2() {
         try {
             AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(ConsumerConfiguration2.class);
@@ -142,7 +127,7 @@ public class ReferenceKeyTest {
     }
 
     @Test
-    public void testConfig3() {
+    void testConfig3() {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(ConsumerConfiguration3.class);
         context.start();
         Map<String, ReferenceBean> referenceBeanMap = context.getBeansOfType(ReferenceBean.class);
@@ -154,7 +139,7 @@ public class ReferenceKeyTest {
     }
 
     @Test
-    public void testConfig4() {
+    void testConfig4() {
         AnnotationConfigApplicationContext context = null;
         try {
             context = new AnnotationConfigApplicationContext(ConsumerConfiguration4.class);
@@ -172,19 +157,19 @@ public class ReferenceKeyTest {
     }
 
     @Test
-    public void testConfig5() {
+    void testConfig5() {
         try {
             AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(ConsumerConfiguration5.class);
             context.start();
             Map<String, ReferenceBean> referenceBeanMap = context.getBeansOfType(ReferenceBean.class);
             Assertions.fail("Reference bean check failed");
         } catch (BeansException e) {
-            Assertions.assertTrue(e.getMessage().contains("Duplicate spring bean name: demoService"), getStackTrace(e));
+            Assertions.assertTrue(getStackTrace(e).contains("Duplicate spring bean name: demoService"));
         }
     }
 
     @Test
-    public void testConfig6() {
+    void testConfig6() {
         try {
             AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(ConsumerConfiguration6.class);
             context.start();

@@ -16,6 +16,9 @@
  */
 package org.apache.dubbo.config;
 
+import org.apache.dubbo.config.bootstrap.DubboBootstrap;
+
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -27,58 +30,64 @@ import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.isEmptyOrNullString;
 import static org.hamcrest.Matchers.sameInstance;
 
-public class AbstractMethodConfigTest {
+class AbstractMethodConfigTest {
+
+    @AfterAll
+    public static void afterAll() {
+        DubboBootstrap.reset();
+    }
+
     @Test
-    public void testTimeout() throws Exception {
+    void testTimeout() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setTimeout(10);
         assertThat(methodConfig.getTimeout(), equalTo(10));
     }
 
     @Test
-    public void testForks() throws Exception {
+    void testForks() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setForks(10);
         assertThat(methodConfig.getForks(), equalTo(10));
     }
 
     @Test
-    public void testRetries() throws Exception {
+    void testRetries() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setRetries(3);
         assertThat(methodConfig.getRetries(), equalTo(3));
     }
 
     @Test
-    public void testLoadbalance() throws Exception {
+    void testLoadbalance() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setLoadbalance("mockloadbalance");
         assertThat(methodConfig.getLoadbalance(), equalTo("mockloadbalance"));
     }
 
     @Test
-    public void testAsync() throws Exception {
+    void testAsync() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setAsync(true);
         assertThat(methodConfig.isAsync(), is(true));
     }
 
     @Test
-    public void testActives() throws Exception {
+    void testActives() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setActives(10);
         assertThat(methodConfig.getActives(), equalTo(10));
     }
 
     @Test
-    public void testSent() throws Exception {
+    void testSent() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setSent(true);
         assertThat(methodConfig.getSent(), is(true));
     }
 
     @Test
-    public void testMock() throws Exception {
+    void testMock() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setMock((Boolean) null);
         assertThat(methodConfig.getMock(), isEmptyOrNullString());
@@ -91,28 +100,28 @@ public class AbstractMethodConfigTest {
     }
 
     @Test
-    public void testMerger() throws Exception {
+    void testMerger() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setMerger("merger");
         assertThat(methodConfig.getMerger(), equalTo("merger"));
     }
 
     @Test
-    public void testCache() throws Exception {
+    void testCache() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setCache("cache");
         assertThat(methodConfig.getCache(), equalTo("cache"));
     }
 
     @Test
-    public void testValidation() throws Exception {
+    void testValidation() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         methodConfig.setValidation("validation");
         assertThat(methodConfig.getValidation(), equalTo("validation"));
     }
 
     @Test
-    public void testParameters() throws Exception {
+    void testParameters() throws Exception {
         MethodConfig methodConfig = new MethodConfig();
         Map<String, String> parameters = new HashMap<String, String>();
         parameters.put("key", "value");

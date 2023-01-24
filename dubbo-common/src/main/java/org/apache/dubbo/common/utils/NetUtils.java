@@ -43,6 +43,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 import static java.util.Collections.emptyList;
 import static org.apache.dubbo.common.constants.CommonConstants.ANYHOST_VALUE;
@@ -56,11 +57,25 @@ import static org.apache.dubbo.common.utils.CollectionUtils.first;
 /**
  * IP and Port Helper for RPC
  */
-public class NetUtils {
+public final class NetUtils {
+
+    /**
+     * Forbids instantiation.
+     */
+    private NetUtils() {
+        throw new UnsupportedOperationException("No instance of 'NetUtils' for you! ");
+    }
 
     private static Logger logger;
 
     static {
+        /*
+            DO NOT replace this logger to error type aware logger (or fail-safe logger), since its
+            logging method calls NetUtils.getLocalHost().
+
+            According to issue #4992, getLocalHost() method will be endless recursively invoked when network disconnected.
+        */
+
         logger = LoggerFactory.getLogger(NetUtils.class);
         if (logger instanceof FailsafeLogger) {
             logger = ((FailsafeLogger) logger).getLogger();
@@ -81,6 +96,7 @@ public class NetUtils {
 
     private static final Map<String, String> HOST_NAME_CACHE = new LRUCache<>(1000);
     private static volatile InetAddress LOCAL_ADDRESS = null;
+    private static volatile Inet6Address LOCAL_ADDRESS_V6 = null;
 
     private static final String SPLIT_IPV4_CHARACTER = "\\.";
     private static final String SPLIT_IPV6_CHARACTER = ":";
@@ -95,22 +111,24 @@ public class NetUtils {
         return RND_PORT_START + ThreadLocalRandom.current().nextInt(RND_PORT_RANGE);
     }
 
-    public synchronized static int getAvailablePort() {
+    public static synchronized int getAvailablePort() {
         int randomPort = getRandomPort();
         return getAvailablePort(randomPort);
     }
 
-    public synchronized static int getAvailablePort(int port) {
+    public static synchronized int getAvailablePort(int port) {
         if (port < MIN_PORT) {
-            return port = MIN_PORT;
+            return MIN_PORT;
         }
+
         for (int i = port; i < MAX_PORT; i++) {
             if (USED_PORT.get(i)) {
                 continue;
             }
             try (ServerSocket ignored = new ServerSocket(i)) {
                 USED_PORT.set(i);
-                return i;
+                port = i;
+                break;
             } catch (IOException e) {
                 // continue
             }
@@ -118,10 +136,39 @@ public class NetUtils {
         return port;
     }
 
+
+    /**
+     * Check the port whether is in use in os
+     * @param port port to check
+     * @return true if it's occupied
+     */
+    public static boolean isPortInUsed(int port) {
+        try (ServerSocket ignored = new ServerSocket(port)) {
+            return false;
+        } catch (IOException e) {
+            // continue
+        }
+        return true;
+    }
+
+    /**
+     * Tells whether the port to test is an invalid port.
+     *
+     * @implNote Numeric comparison only.
+     * @param port port to test
+     * @return true if invalid
+     */
     public static boolean isInvalidPort(int port) {
         return port < MIN_PORT || port > MAX_PORT;
     }
 
+    /**
+     * Tells whether the address to test is an invalid address.
+     *
+     * @implNote Pattern matching only.
+     * @param address address to test
+     * @return true if invalid
+     */
     public static boolean isValidAddress(String address) {
         return ADDRESS_PATTERN.matcher(address).matches();
     }
@@ -204,6 +251,8 @@ public class NetUtils {
 
     private static volatile String HOST_ADDRESS;
 
+    private static volatile String HOST_ADDRESS_V6;
+
     public static String getLocalHost() {
         if (HOST_ADDRESS != null) {
             return HOST_ADDRESS;
@@ -211,9 +260,43 @@ public class NetUtils {
 
         InetAddress address = getLocalAddress();
         if (address != null) {
-            return HOST_ADDRESS = address.getHostAddress();
+            if (address instanceof Inet6Address) {
+                String ipv6AddressString = address.getHostAddress();
+                if (ipv6AddressString.contains("%")) {
+                    ipv6AddressString = ipv6AddressString.substring(0, ipv6AddressString.indexOf("%"));
+                }
+                HOST_ADDRESS = ipv6AddressString;
+                return HOST_ADDRESS;
+            }
+
+            HOST_ADDRESS = address.getHostAddress();
+            return HOST_ADDRESS;
         }
+
         return LOCALHOST_VALUE;
+    }
+
+    public static String getLocalHostV6() {
+        if (StringUtils.isNotEmpty(HOST_ADDRESS_V6)) {
+            return HOST_ADDRESS_V6;
+        }
+        //avoid to search network interface card many times
+        if("".equals(HOST_ADDRESS_V6)){
+            return null;
+        }
+
+        Inet6Address address = getLocalAddressV6();
+        if (address != null) {
+            String ipv6AddressString = address.getHostAddress();
+            if (ipv6AddressString.contains("%")) {
+                ipv6AddressString = ipv6AddressString.substring(0, ipv6AddressString.indexOf("%"));
+            }
+
+            HOST_ADDRESS_V6 = ipv6AddressString;
+            return HOST_ADDRESS_V6;
+        }
+        HOST_ADDRESS_V6 = "";
+        return null;
     }
 
     public static String filterLocalHost(String host) {
@@ -244,9 +327,7 @@ public class NetUtils {
             return configIp;
         }
 
-        InetAddress localAddress = getLocalAddress();
-        String hostName = localAddress == null ? LOCALHOST_VALUE : localAddress.getHostName();
-        return getIpByHost(hostName);
+        return getLocalHost();
     }
 
     /**
@@ -260,6 +341,15 @@ public class NetUtils {
         }
         InetAddress localAddress = getLocalAddress0();
         LOCAL_ADDRESS = localAddress;
+        return localAddress;
+    }
+
+    public static Inet6Address getLocalAddressV6() {
+        if (LOCAL_ADDRESS_V6 != null) {
+            return LOCAL_ADDRESS_V6;
+        }
+        Inet6Address localAddress = getLocalAddress0V6();
+        LOCAL_ADDRESS_V6 = localAddress;
         return localAddress;
     }
 
@@ -309,8 +399,45 @@ public class NetUtils {
             logger.warn(e);
         }
 
+        localAddress = getLocalAddressV6();
 
         return localAddress;
+    }
+
+    private static Inet6Address getLocalAddress0V6() {
+        // @since 2.7.6, choose the {@link NetworkInterface} first
+        try {
+            NetworkInterface networkInterface = findNetworkInterface();
+            Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
+            while (addresses.hasMoreElements()) {
+                InetAddress address = addresses.nextElement();
+                if (address instanceof Inet6Address) {
+                    if (!address.isLoopbackAddress() //filter ::1
+                        && !address.isAnyLocalAddress() // filter ::/128
+                        && !address.isLinkLocalAddress() //filter fe80::/10
+                        && !address.isSiteLocalAddress()// filter fec0::/10
+                        && !isUniqueLocalAddress(address) //filter fd00::/8
+                        && address.getHostAddress().contains(":")) {//filter IPv6
+                        return (Inet6Address) address;
+                    }
+                }
+            }
+        } catch (Throwable e) {
+            logger.warn(e);
+        }
+
+        return null;
+    }
+
+    /**
+     * If the address is Unique Local Address.
+     *
+     * @param address {@link InetAddress}
+     * @return {@code true} if the address is Unique Local Address,otherwise {@code false}
+     */
+    private static boolean isUniqueLocalAddress(InetAddress address) {
+        byte[] ip = address.getAddress();
+        return (ip[0] & 0xff) == 0xfd;
     }
 
     /**
@@ -332,8 +459,20 @@ public class NetUtils {
         if (StringUtils.isNotEmpty(ignoredInterfaces)
             && StringUtils.isNotEmpty(networkInterfaceDisplayName = networkInterface.getDisplayName())) {
             for (String ignoredInterface : ignoredInterfaces.split(",")) {
-                if (networkInterfaceDisplayName.matches(ignoredInterface.trim())) {
-                    return true;
+                String trimIgnoredInterface = ignoredInterface.trim();
+                boolean matched = false;
+                try {
+                    matched = networkInterfaceDisplayName.matches(trimIgnoredInterface);
+                } catch (PatternSyntaxException e) {
+                    // if trimIgnoredInterface is an invalid regular expression, a PatternSyntaxException will be thrown out
+                    logger.warn("exception occurred: " + networkInterfaceDisplayName + " matches " + trimIgnoredInterface, e);
+                } finally {
+                    if (matched) {
+                        return true;
+                    }
+                    if (networkInterfaceDisplayName.equals(trimIgnoredInterface)) {
+                        return true;
+                    }
                 }
             }
         }
@@ -406,8 +545,7 @@ public class NetUtils {
                     if (addressOp.isPresent()) {
                         try {
                             if (addressOp.get().isReachable(100)) {
-                                result = networkInterface;
-                                break;
+                                return networkInterface;
                             }
                         } catch (IOException e) {
                             // ignore
@@ -444,6 +582,14 @@ public class NetUtils {
             // ignore
         }
         return address;
+    }
+
+    public static String getLocalHostName() {
+        try {
+            return InetAddress.getLocalHost().getHostName();
+        } catch (UnknownHostException e) {
+            return getLocalAddress().getHostName();
+        }
     }
 
     /**
@@ -487,19 +633,24 @@ public class NetUtils {
         return sb.toString();
     }
 
+    @SuppressWarnings("deprecation")
     public static void joinMulticastGroup(MulticastSocket multicastSocket, InetAddress multicastAddress) throws
         IOException {
         setInterface(multicastSocket, multicastAddress instanceof Inet6Address);
+
+        // For the deprecation notice: the equivalent only appears in JDK 9+.
         multicastSocket.setLoopbackMode(false);
         multicastSocket.joinGroup(multicastAddress);
     }
 
+    @SuppressWarnings("deprecation")
     public static void setInterface(MulticastSocket multicastSocket, boolean preferIpv6) throws IOException {
         boolean interfaceSet = false;
         for (NetworkInterface networkInterface : getValidNetworkInterfaces()) {
-            Enumeration addresses = networkInterface.getInetAddresses();
+            Enumeration<InetAddress> addresses = networkInterface.getInetAddresses();
+
             while (addresses.hasMoreElements()) {
-                InetAddress address = (InetAddress) addresses.nextElement();
+                InetAddress address = addresses.nextElement();
                 if (preferIpv6 && address instanceof Inet6Address) {
                     try {
                         if (address.isReachable(100)) {
@@ -569,7 +720,7 @@ public class NetUtils {
             splitCharacter = SPLIT_IPV6_CHARACTER;
         }
         String[] mask = pattern.split(splitCharacter);
-        //check format of pattern
+        // check format of pattern
         checkHostPattern(pattern, mask, isIpv4);
 
         host = inetAddress.getHostAddress();
@@ -584,6 +735,7 @@ public class NetUtils {
         }
 
         String[] ipAddress = host.split(splitCharacter);
+
         for (int i = 0; i < mask.length; i++) {
             if ("*".equals(mask[i]) || mask[i].equals(ipAddress[i])) {
                 continue;
@@ -617,7 +769,7 @@ public class NetUtils {
         int i = host.indexOf('.');
         if (i > 0) {
             String prefix = host.substring(0, i);
-            if (StringUtils.isInteger(prefix)) {
+            if (StringUtils.isNumber(prefix)) {
                 int p = Integer.parseInt(prefix);
                 return p >= 224 && p <= 239;
             }
@@ -671,6 +823,30 @@ public class NetUtils {
             return Integer.parseInt(ipSegment);
         }
         return Integer.parseInt(ipSegment, 16);
+    }
+
+
+    public static boolean isIPV6URLStdFormat(String ip) {
+        if ((ip.charAt(0) == '[' && ip.indexOf(']') > 2)) {
+            return true;
+        } else if (ip.indexOf(":") != ip.lastIndexOf(":")) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    public static String getLegalIP(String ip) {
+        //ipv6 [::FFFF:129.144.52.38]:80
+        int ind;
+        if ((ip.charAt(0) == '[' && (ind = ip.indexOf(']')) > 2)) {
+            String nhost = ip;
+            ip = nhost.substring(0, ind + 1);
+            ip = ip.substring(1, ind);
+            return ip;
+        } else {
+            return ip;
+        }
     }
 
 }

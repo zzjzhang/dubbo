@@ -19,10 +19,19 @@ package org.apache.dubbo.qos.command.util;
 import org.apache.dubbo.qos.command.GreetingCommand;
 import org.apache.dubbo.qos.command.impl.ChangeTelnet;
 import org.apache.dubbo.qos.command.impl.CountTelnet;
+import org.apache.dubbo.qos.command.impl.DisableDetailProfiler;
+import org.apache.dubbo.qos.command.impl.DisableRouterSnapshot;
+import org.apache.dubbo.qos.command.impl.DisableSimpleProfiler;
+import org.apache.dubbo.qos.command.impl.EnableDetailProfiler;
+import org.apache.dubbo.qos.command.impl.EnableRouterSnapshot;
+import org.apache.dubbo.qos.command.impl.EnableSimpleProfiler;
+import org.apache.dubbo.qos.command.impl.GetEnabledRouterSnapshot;
+import org.apache.dubbo.qos.command.impl.GetRecentRouterSnapshot;
+import org.apache.dubbo.qos.command.impl.GetRouterSnapshot;
 import org.apache.dubbo.qos.command.impl.Help;
 import org.apache.dubbo.qos.command.impl.InvokeTelnet;
-import org.apache.dubbo.qos.command.impl.InvokeTelnetTest;
 import org.apache.dubbo.qos.command.impl.Live;
+import org.apache.dubbo.qos.command.impl.LoggerInfo;
 import org.apache.dubbo.qos.command.impl.Ls;
 import org.apache.dubbo.qos.command.impl.Offline;
 import org.apache.dubbo.qos.command.impl.OfflineApp;
@@ -36,9 +45,13 @@ import org.apache.dubbo.qos.command.impl.PwdTelnet;
 import org.apache.dubbo.qos.command.impl.Quit;
 import org.apache.dubbo.qos.command.impl.Ready;
 import org.apache.dubbo.qos.command.impl.SelectTelnet;
+import org.apache.dubbo.qos.command.impl.SetProfilerWarnPercent;
 import org.apache.dubbo.qos.command.impl.ShutdownTelnet;
 import org.apache.dubbo.qos.command.impl.Startup;
+import org.apache.dubbo.qos.command.impl.SwitchLogLevel;
+import org.apache.dubbo.qos.command.impl.SwitchLogger;
 import org.apache.dubbo.qos.command.impl.Version;
+import org.apache.dubbo.rpc.model.FrameworkModel;
 
 import org.junit.jupiter.api.Test;
 
@@ -52,16 +65,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class CommandHelperTest {
+class CommandHelperTest {
+    private CommandHelper commandHelper = new CommandHelper(FrameworkModel.defaultModel());
+
     @Test
-    public void testHasCommand() throws Exception {
-        assertTrue(CommandHelper.hasCommand("greeting"));
-        assertFalse(CommandHelper.hasCommand("not-exiting"));
+    void testHasCommand() throws Exception {
+        assertTrue(commandHelper.hasCommand("greeting"));
+        assertFalse(commandHelper.hasCommand("not-exiting"));
     }
 
     @Test
-    public void testGetAllCommandClass() throws Exception {
-        List<Class<?>> classes = CommandHelper.getAllCommandClass();
+    void testGetAllCommandClass() throws Exception {
+        List<Class<?>> classes = commandHelper.getAllCommandClass();
 
         // update this list when introduce a new command
         List<Class<?>> expectedClasses = new LinkedList<>();
@@ -87,12 +102,25 @@ public class CommandHelperTest {
         expectedClasses.add(PortTelnet.class);
         expectedClasses.add(PwdTelnet.class);
         expectedClasses.add(ShutdownTelnet.class);
+        expectedClasses.add(EnableDetailProfiler.class);
+        expectedClasses.add(DisableDetailProfiler.class);
+        expectedClasses.add(EnableSimpleProfiler.class);
+        expectedClasses.add(DisableSimpleProfiler.class);
+        expectedClasses.add(SetProfilerWarnPercent.class);
+        expectedClasses.add(GetRouterSnapshot.class);
+        expectedClasses.add(GetEnabledRouterSnapshot.class);
+        expectedClasses.add(EnableRouterSnapshot.class);
+        expectedClasses.add(DisableRouterSnapshot.class);
+        expectedClasses.add(GetRecentRouterSnapshot.class);
+        expectedClasses.add(LoggerInfo.class);
+        expectedClasses.add(SwitchLogger.class);
+        expectedClasses.add(SwitchLogLevel.class);
         assertThat(classes, containsInAnyOrder(expectedClasses.toArray(new Class<?>[0])));
     }
 
     @Test
-    public void testGetCommandClass() throws Exception {
-        assertThat(CommandHelper.getCommandClass("greeting"), equalTo(GreetingCommand.class));
-        assertNull(CommandHelper.getCommandClass("not-exiting"));
+    void testGetCommandClass() throws Exception {
+        assertThat(commandHelper.getCommandClass("greeting"), equalTo(GreetingCommand.class));
+        assertNull(commandHelper.getCommandClass("not-exiting"));
     }
 }

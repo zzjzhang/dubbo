@@ -16,13 +16,15 @@
  */
 package org.apache.dubbo.rpc.cluster.directory;
 
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+
 import org.apache.dubbo.rpc.AttachmentsAdapter;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.model.ServiceModel;
-
-import java.util.HashMap;
-import java.util.Map;
 
 import static org.apache.dubbo.common.constants.CommonConstants.DUBBO_VERSION_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.GROUP_KEY;
@@ -34,7 +36,7 @@ import static org.apache.dubbo.rpc.Constants.TOKEN_KEY;
 /**
  * MockInvocation.java
  */
-public class MockDirInvocation implements Invocation {
+class MockDirInvocation implements Invocation {
 
     private Map<String, Object> attachments;
 
@@ -82,6 +84,16 @@ public class MockDirInvocation implements Invocation {
     @Override
     public Map<String, Object> getObjectAttachments() {
         return attachments;
+    }
+
+    @Override
+    public Map<String, Object> copyObjectAttachments() {
+        return new HashMap<>(attachments);
+    }
+
+    @Override
+    public void foreachAttachment(Consumer<Map.Entry<String, Object>> consumer) {
+        attachments.entrySet().forEach(consumer);
     }
 
     @Override
@@ -156,6 +168,16 @@ public class MockDirInvocation implements Invocation {
 
     public String getAttachment(String key, String defaultValue) {
         return (String) getObjectAttachment(key, defaultValue);
+    }
+
+    @Override
+    public void addInvokedInvoker(Invoker<?> invoker) {
+
+    }
+
+    @Override
+    public List<Invoker<?>> getInvokedInvokers() {
+        return null;
     }
 
     @Override

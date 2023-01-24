@@ -18,18 +18,19 @@ package org.apache.dubbo.config;
 
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.Version;
+import org.apache.dubbo.common.constants.CommonConstants;
 import org.apache.dubbo.common.constants.RegistryConstants;
 import org.apache.dubbo.common.extension.ExtensionLoader;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.url.component.ServiceConfigURL;
+import org.apache.dubbo.common.utils.ArrayUtils;
 import org.apache.dubbo.common.utils.CollectionUtils;
 import org.apache.dubbo.common.utils.ConfigUtils;
 import org.apache.dubbo.common.utils.NetUtils;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.common.utils.UrlUtils;
 import org.apache.dubbo.config.annotation.Reference;
-import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.support.Parameter;
 import org.apache.dubbo.config.utils.ConfigValidationUtils;
 import org.apache.dubbo.registry.client.metadata.MetadataUtils;
@@ -42,18 +43,22 @@ import org.apache.dubbo.rpc.cluster.support.ClusterUtils;
 import org.apache.dubbo.rpc.cluster.support.registry.ZoneAwareCluster;
 import org.apache.dubbo.rpc.model.AsyncMethodInfo;
 import org.apache.dubbo.rpc.model.ConsumerModel;
+import org.apache.dubbo.rpc.model.ModuleModel;
+import org.apache.dubbo.rpc.model.ModuleServiceRepository;
+import org.apache.dubbo.rpc.model.ScopeModel;
 import org.apache.dubbo.rpc.model.ServiceDescriptor;
-import org.apache.dubbo.rpc.model.ServiceRepository;
 import org.apache.dubbo.rpc.protocol.injvm.InjvmProtocol;
 import org.apache.dubbo.rpc.service.GenericService;
+import org.apache.dubbo.rpc.stub.StubSuppliers;
 import org.apache.dubbo.rpc.support.ProtocolUtils;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.apache.dubbo.common.constants.CommonConstants.ANY_VALUE;
@@ -61,22 +66,33 @@ import static org.apache.dubbo.common.constants.CommonConstants.CLUSTER_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.COMMA_SEPARATOR;
 import static org.apache.dubbo.common.constants.CommonConstants.COMMA_SEPARATOR_CHAR;
 import static org.apache.dubbo.common.constants.CommonConstants.CONSUMER_SIDE;
+import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_CLUSTER_DOMAIN;
+import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_MESH_PORT;
 import static org.apache.dubbo.common.constants.CommonConstants.INTERFACE_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.LOCALHOST_VALUE;
-import static org.apache.dubbo.common.constants.CommonConstants.METADATA_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.MESH_ENABLE;
 import static org.apache.dubbo.common.constants.CommonConstants.METHODS_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.MONITOR_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.PROXY_CLASS_REF;
-import static org.apache.dubbo.common.constants.CommonConstants.REMOTE_METADATA_STORAGE_TYPE;
 import static org.apache.dubbo.common.constants.CommonConstants.REVISION_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.SEMICOLON_SPLIT_PATTERN;
 import static org.apache.dubbo.common.constants.CommonConstants.SIDE_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.SVC;
+import static org.apache.dubbo.common.constants.CommonConstants.TRIPLE;
+import static org.apache.dubbo.common.constants.CommonConstants.UNLOAD_CLUSTER_RELATED;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CLUSTER_NO_VALID_PROVIDER;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CONFIG_FAILED_DESTROY_INVOKER;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CONFIG_FAILED_LOAD_ENV_VARIABLE;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CONFIG_NO_METHOD_FOUND;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CONFIG_PROPERTY_CONFLICT;
+import static org.apache.dubbo.common.constants.RegistryConstants.PROVIDED_BY;
 import static org.apache.dubbo.common.constants.RegistryConstants.SUBSCRIBED_SERVICE_NAMES_KEY;
 import static org.apache.dubbo.common.utils.NetUtils.isInvalidLocalHost;
 import static org.apache.dubbo.common.utils.StringUtils.splitToSet;
 import static org.apache.dubbo.config.Constants.DUBBO_IP_TO_REGISTRY;
 import static org.apache.dubbo.registry.Constants.CONSUMER_PROTOCOL;
 import static org.apache.dubbo.registry.Constants.REGISTER_IP_KEY;
+import static org.apache.dubbo.rpc.Constants.GENERIC_KEY;
 import static org.apache.dubbo.rpc.Constants.LOCAL_PROTOCOL;
 import static org.apache.dubbo.rpc.cluster.Constants.PEER_KEY;
 import static org.apache.dubbo.rpc.cluster.Constants.REFER_KEY;
@@ -87,7 +103,7 @@ import static org.apache.dubbo.rpc.cluster.Constants.REFER_KEY;
  */
 public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
 
-    public static final Logger logger = LoggerFactory.getLogger(ReferenceConfig.class);
+    public static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(ReferenceConfig.class);
 
     /**
      * The {@link Protocol} implementation with adaptive functionality,it will be different in different scenarios.
@@ -100,8 +116,8 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
      * <li>when the url is dubbo://224.5.6.7:1234/org.apache.dubbo.config.api.DemoService?application=dubbo-sample, then
      * the protocol is <b>DubboProtocol</b></li>
      * <p>
-     * Actually，when the {@link ExtensionLoader} init the {@link Protocol} instants,it will automatically wraps two
-     * layers, and eventually will get a <b>ProtocolFilterWrapper</b> or <b>ProtocolListenerWrapper</b>
+     * Actually，when the {@link ExtensionLoader} init the {@link Protocol} instants,it will automatically wrap three
+     * layers, and eventually will get a <b>ProtocolSerializationWrapper</b> or <b>ProtocolFilterWrapper</b> or <b>ProtocolListenerWrapper</b>
      */
     private Protocol protocolSPI;
 
@@ -133,8 +149,6 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
      */
     private transient volatile boolean destroyed;
 
-    private DubboBootstrap bootstrap;
-
     /**
      * The service names that the Dubbo interface subscribed.
      *
@@ -146,13 +160,21 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
         super();
     }
 
+    public ReferenceConfig(ModuleModel moduleModel) {
+        super(moduleModel);
+    }
+
     public ReferenceConfig(Reference reference) {
         super(reference);
     }
 
+    public ReferenceConfig(ModuleModel moduleModel, Reference reference) {
+        super(moduleModel, reference);
+    }
+
     @Override
-    protected void initExtensions() {
-        super.initExtensions();
+    protected void postProcessAfterScopeModelChanged(ScopeModel oldScopeModel, ScopeModel newScopeModel) {
+        super.postProcessAfterScopeModelChanged(oldScopeModel, newScopeModel);
 
         protocolSPI = this.getExtensionLoader(Protocol.class).getAdaptiveExtension();
         proxyFactory = this.getExtensionLoader(ProxyFactory.class).getAdaptiveExtension();
@@ -195,13 +217,20 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
     }
 
     @Override
-    public synchronized T get() {
+    public T get() {
         if (destroyed) {
             throw new IllegalStateException("The invoker of ReferenceConfig(" + url + ") has already destroyed!");
         }
 
         if (ref == null) {
-            init();
+            // ensure start module, compatible with old api usage
+            getScopeModel().getDeployer().start();
+
+            synchronized (this) {
+                if (ref == null) {
+                    init();
+                }
+            }
         }
 
         return ref;
@@ -209,6 +238,7 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
 
     @Override
     public synchronized void destroy() {
+        super.destroy();
         if (destroyed) {
             return;
         }
@@ -218,64 +248,92 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
                 invoker.destroy();
             }
         } catch (Throwable t) {
-            logger.warn("Unexpected error occurred when destroy invoker of ReferenceConfig(" + url + ").", t);
+            logger.warn(CONFIG_FAILED_DESTROY_INVOKER, "", "", "Unexpected error occurred when destroy invoker of ReferenceConfig(" + url + ").", t);
         }
         invoker = null;
         ref = null;
+        if (consumerModel != null) {
+            ModuleServiceRepository repository = getScopeModel().getServiceRepository();
+            repository.unregisterConsumer(consumerModel);
+        }
     }
 
     protected synchronized void init() {
-        if (initialized) {
+        if (initialized && ref != null) {
             return;
         }
+        try {
+            if (!this.isRefreshed()) {
+                this.refresh();
+            }
 
-        // Using DubboBootstrap API will associate bootstrap when registering reference.
-        // Loading by Spring context will associate bootstrap in afterPropertiesSet() method.
-        // Initializing bootstrap here only for compatible with old API usages.
-        if (bootstrap == null) {
-            bootstrap = DubboBootstrap.getInstance();
-            bootstrap.initialize();
-            bootstrap.reference(this);
+            // init serviceMetadata
+            initServiceMetadata(consumer);
+
+            serviceMetadata.setServiceType(getServiceInterfaceClass());
+            // TODO, uncomment this line once service key is unified
+            serviceMetadata.generateServiceKey();
+
+            Map<String, String> referenceParameters = appendConfig();
+
+            ModuleServiceRepository repository = getScopeModel().getServiceRepository();
+            ServiceDescriptor serviceDescriptor;
+            if (CommonConstants.NATIVE_STUB.equals(getProxy())) {
+                serviceDescriptor = StubSuppliers.getServiceDescriptor(interfaceName);
+                repository.registerService(serviceDescriptor);
+            } else {
+                serviceDescriptor = repository.registerService(interfaceClass);
+            }
+            consumerModel = new ConsumerModel(serviceMetadata.getServiceKey(), proxy, serviceDescriptor,
+                    getScopeModel(), serviceMetadata, createAsyncMethodInfo(), interfaceClassLoader);
+
+            // Compatible with dependencies on ServiceModel#getReferenceConfig() , and will be removed in a future version.
+            consumerModel.setConfig(this);
+
+            repository.registerConsumer(consumerModel);
+
+            serviceMetadata.getAttachments().putAll(referenceParameters);
+
+            ref = createProxy(referenceParameters);
+
+            serviceMetadata.setTarget(ref);
+            serviceMetadata.addAttribute(PROXY_CLASS_REF, ref);
+
+            consumerModel.setDestroyRunner(getDestroyRunner());
+            consumerModel.setProxyObject(ref);
+            consumerModel.initMethodModels();
+
+            checkInvokerAvailable();
+        } catch (Throwable t) {
+            try {
+                if (invoker != null) {
+                    invoker.destroy();
+                }
+            } catch (Throwable destroy) {
+                logger.warn(CONFIG_FAILED_DESTROY_INVOKER, "", "", "Unexpected error occurred when destroy invoker of ReferenceConfig(" + url + ").", t);
+            }
+            if (consumerModel != null) {
+                ModuleServiceRepository repository = getScopeModel().getServiceRepository();
+                repository.unregisterConsumer(consumerModel);
+            }
+            initialized = false;
+            invoker = null;
+            ref = null;
+            consumerModel = null;
+            serviceMetadata.setTarget(null);
+            serviceMetadata.getAttributeMap().remove(PROXY_CLASS_REF);
+
+            // Thrown by checkInvokerAvailable().
+            if (t.getClass() == IllegalStateException.class &&
+                t.getMessage().contains("No provider available for the service")) {
+
+                // 2-2 - No provider available.
+                logger.error(CLUSTER_NO_VALID_PROVIDER, "server crashed", "", "No provider available.", t);
+            }
+
+            throw t;
         }
-
-        // check bootstrap state
-        if (!bootstrap.isInitialized()) {
-            throw new IllegalStateException("DubboBootstrap is not initialized");
-        }
-
-        if (!this.isRefreshed()) {
-            this.refresh();
-        }
-
-        //init serviceMetadata
-        initServiceMetadata(consumer);
-        serviceMetadata.setServiceType(getServiceInterfaceClass());
-        // TODO, uncomment this line once service key is unified
-        serviceMetadata.setServiceKey(URL.buildKey(interfaceName, group, version));
-
-        Map<String, String> referenceParameters = appendConfig();
-
-
-        ServiceRepository repository = getApplicationModel().getApplicationServiceRepository();
-        ServiceDescriptor serviceDescriptor = repository.registerService(interfaceClass);
-        consumerModel = new ConsumerModel(serviceMetadata.getServiceKey(), proxy, serviceDescriptor, this,
-            getScopeModel(), serviceMetadata, createAsyncMethodInfo());
-
-        repository.registerConsumer(consumerModel);
-
-        serviceMetadata.getAttachments().putAll(referenceParameters);
-
-        ref = createProxy(referenceParameters);
-
-        serviceMetadata.setTarget(ref);
-        serviceMetadata.addAttribute(PROXY_CLASS_REF, ref);
-
-        consumerModel.setProxyObject(ref);
-        consumerModel.initMethodModels();
-
         initialized = true;
-
-        checkInvokerAvailable();
     }
 
     /**
@@ -313,36 +371,33 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
 
         if (!ProtocolUtils.isGeneric(generic)) {
             String revision = Version.getVersion(interfaceClass, version);
-            if (revision != null && revision.length() > 0) {
+            if (StringUtils.isNotEmpty(revision)) {
                 map.put(REVISION_KEY, revision);
             }
 
             String[] methods = methods(interfaceClass);
             if (methods.length == 0) {
-                logger.warn("No method found in service interface " + interfaceClass.getName());
+                logger.warn(CONFIG_NO_METHOD_FOUND, "", "", "No method found in service interface: " + interfaceClass.getName());
                 map.put(METHODS_KEY, ANY_VALUE);
             } else {
-                map.put(METHODS_KEY, StringUtils.join(new HashSet<>(Arrays.asList(methods)), COMMA_SEPARATOR));
+                List<String> copyOfMethods = new ArrayList<>(Arrays.asList(methods));
+                copyOfMethods.sort(Comparator.naturalOrder());
+                map.put(METHODS_KEY, String.join(COMMA_SEPARATOR, copyOfMethods));
             }
         }
 
-        AbstractConfig.appendParameters(map, getMetrics());
         AbstractConfig.appendParameters(map, getApplication());
         AbstractConfig.appendParameters(map, getModule());
         AbstractConfig.appendParameters(map, consumer);
         AbstractConfig.appendParameters(map, this);
-
-        MetadataReportConfig metadataReportConfig = getMetadataReportConfig();
-        if (metadataReportConfig != null && metadataReportConfig.isValid()) {
-            map.putIfAbsent(METADATA_KEY, REMOTE_METADATA_STORAGE_TYPE);
-        }
+        appendMetricsCompatible(map);
 
         String hostToRegistry = ConfigUtils.getSystemProperty(DUBBO_IP_TO_REGISTRY);
         if (StringUtils.isEmpty(hostToRegistry)) {
             hostToRegistry = NetUtils.getLocalHost();
         } else if (isInvalidLocalHost(hostToRegistry)) {
             throw new IllegalArgumentException(
-                "Specified invalid registry ip from property:" + DUBBO_IP_TO_REGISTRY + ", value:" + hostToRegistry);
+                    "Specified invalid registry ip from property:" + DUBBO_IP_TO_REGISTRY + ", value:" + hostToRegistry);
         }
 
         map.put(REGISTER_IP_KEY, hostToRegistry);
@@ -369,7 +424,10 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
             createInvokerForLocal(referenceParameters);
         } else {
             urls.clear();
-            if (url != null && url.length() > 0) {
+
+            meshModeHandleUrl(referenceParameters);
+
+            if (StringUtils.isNotEmpty(url)) {
                 // user specified URL, could be peer-to-peer address, or register center's address.
                 parseUrl(referenceParameters);
             } else {
@@ -382,17 +440,88 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
         }
 
         if (logger.isInfoEnabled()) {
-            logger.info("Referred dubbo service " + interfaceClass.getName());
+            logger.info("Referred dubbo service: [" + referenceParameters.get(INTERFACE_KEY) + "]." +
+                    (Boolean.parseBoolean(referenceParameters.get(GENERIC_KEY)) ?
+                            " it's GenericService reference" : " it's not GenericService reference"));
         }
 
         URL consumerUrl = new ServiceConfigURL(CONSUMER_PROTOCOL, referenceParameters.get(REGISTER_IP_KEY), 0,
-            referenceParameters.get(INTERFACE_KEY), referenceParameters);
+                referenceParameters.get(INTERFACE_KEY), referenceParameters);
         consumerUrl = consumerUrl.setScopeModel(getScopeModel());
         consumerUrl = consumerUrl.setServiceModel(consumerModel);
-        MetadataUtils.publishServiceDefinition(consumerUrl);
+        MetadataUtils.publishServiceDefinition(consumerUrl, consumerModel.getServiceModel(), getApplicationModel());
 
         // create service proxy
         return (T) proxyFactory.getProxy(invoker, ProtocolUtils.isGeneric(generic));
+    }
+
+    /**
+     * if enable mesh mode, handle url.
+     *
+     * @param referenceParameters referenceParameters
+     */
+    private void meshModeHandleUrl(Map<String, String> referenceParameters) {
+        if (!checkMeshConfig(referenceParameters)) {
+            return;
+        }
+        if (StringUtils.isNotEmpty(url)) {
+            // user specified URL, could be peer-to-peer address, or register center's address.
+            if (logger.isInfoEnabled()) {
+                logger.info("The url already exists, mesh no longer processes url: " + url);
+            }
+            return;
+        }
+
+        // get provider namespace if (@DubboReference, <reference provider-namespace="xx"/>) present
+        String podNamespace = referenceParameters.get(RegistryConstants.PROVIDER_NAMESPACE);
+
+        // get pod namespace from env if annotation not present the provider namespace
+        if (StringUtils.isEmpty(podNamespace)) {
+            if (StringUtils.isEmpty(System.getenv("POD_NAMESPACE"))) {
+                if (logger.isWarnEnabled()) {
+                    logger.warn(CONFIG_FAILED_LOAD_ENV_VARIABLE, "", "", "Can not get env variable: POD_NAMESPACE, it may not be running in the K8S environment , " +
+                            "finally use 'default' replace.");
+                }
+                podNamespace = "default";
+            } else {
+                podNamespace = System.getenv("POD_NAMESPACE");
+            }
+        }
+
+        // In mesh mode, providedBy equals K8S Service name.
+        String providedBy = referenceParameters.get(PROVIDED_BY);
+        // cluster_domain default is 'cluster.local',generally unchanged.
+        String clusterDomain = Optional.ofNullable(System.getenv("CLUSTER_DOMAIN")).orElse(DEFAULT_CLUSTER_DOMAIN);
+        // By VirtualService and DestinationRule, envoy will generate a new route rule,such as 'demo.default.svc.cluster.local:80',the default port is 80.
+        Integer meshPort = Optional.ofNullable(getProviderPort()).orElse(DEFAULT_MESH_PORT);
+        // DubboReference default is -1, process it.
+        meshPort = meshPort > -1 ? meshPort : DEFAULT_MESH_PORT;
+        // get mesh url.
+        url = TRIPLE + "://" + providedBy + "." + podNamespace + SVC + clusterDomain + ":" + meshPort;
+    }
+
+    /**
+     * check if mesh config is correct
+     *
+     * @param referenceParameters referenceParameters
+     * @return mesh config is correct
+     */
+    private boolean checkMeshConfig(Map<String, String> referenceParameters) {
+        if (!"true".equals(referenceParameters.getOrDefault(MESH_ENABLE, "false"))) {
+            // In mesh mode, unloadClusterRelated can only be false.
+            referenceParameters.put(UNLOAD_CLUSTER_RELATED, "false");
+            return false;
+        }
+
+        getScopeModel().getConfigManager().getProtocol(TRIPLE)
+                .orElseThrow(() -> new IllegalStateException("In mesh mode, a triple protocol must be specified"));
+
+        String providedBy = referenceParameters.get(PROVIDED_BY);
+        if (StringUtils.isEmpty(providedBy)) {
+            throw new IllegalStateException("In mesh mode, the providedBy of ReferenceConfig is must be set");
+        }
+
+        return true;
     }
 
     /**
@@ -400,11 +529,17 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
      *
      * @param referenceParameters
      */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private void createInvokerForLocal(Map<String, String> referenceParameters) {
-        URL url = new ServiceConfigURL(LOCAL_PROTOCOL, LOCALHOST_VALUE, 0, interfaceClass.getName()).addParameters(referenceParameters);
+        URL url = new ServiceConfigURL(LOCAL_PROTOCOL, LOCALHOST_VALUE, 0, interfaceClass.getName(), referenceParameters);
         url = url.setScopeModel(getScopeModel());
         url = url.setServiceModel(consumerModel);
-        invoker = protocolSPI.refer(interfaceClass, url);
+        Invoker<?> withFilter = protocolSPI.refer(interfaceClass, url);
+        // Local Invoke ( Support Cluster Filter / Filter )
+        List<Invoker<?>> invokers = new ArrayList<>();
+        invokers.add(withFilter);
+        invoker = Cluster.getCluster(url.getScopeModel(), Cluster.DEFAULT).join(new StaticDirectory(url, invokers), true);
+
         if (logger.isInfoEnabled()) {
             logger.info("Using in jvm service " + interfaceClass.getName());
         }
@@ -415,7 +550,7 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
      */
     private void parseUrl(Map<String, String> referenceParameters) {
         String[] us = SEMICOLON_SPLIT_PATTERN.split(url);
-        if (us != null && us.length > 0) {
+        if (ArrayUtils.isNotEmpty(us)) {
             for (String u : us) {
                 URL url = URL.valueOf(u);
                 if (StringUtils.isEmpty(url.getPath())) {
@@ -426,7 +561,7 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
                 if (UrlUtils.isRegistry(url)) {
                     urls.add(url.putAttribute(REFER_KEY, referenceParameters));
                 } else {
-                    URL peerUrl = ClusterUtils.mergeUrl(url, referenceParameters);
+                    URL peerUrl = getScopeModel().getApplicationModel().getBeanFactory().getBean(ClusterUtils.class).mergeUrl(url, referenceParameters);
                     peerUrl = peerUrl.putAttribute(PEER_KEY, true);
                     urls.add(peerUrl);
                 }
@@ -453,9 +588,9 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
         }
         if (urls.isEmpty()) {
             throw new IllegalStateException(
-                "No such any registry to reference " + interfaceName + " on the consumer " + NetUtils.getLocalHost() +
-                    " use dubbo version " + Version.getVersion() +
-                    ", please config <dubbo:registry address=\"...\" /> to your spring config.");
+                    "No such any registry to reference " + interfaceName + " on the consumer " + NetUtils.getLocalHost() +
+                            " use dubbo version " + Version.getVersion() +
+                            ", please config <dubbo:registry address=\"...\" /> to your spring config.");
         }
     }
 
@@ -466,7 +601,15 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void createInvokerForRemote() {
         if (urls.size() == 1) {
-            invoker = protocolSPI.refer(interfaceClass, urls.get(0));
+            URL curUrl = urls.get(0);
+            invoker = protocolSPI.refer(interfaceClass, curUrl);
+            // registry url, mesh-enable and unloadClusterRelated is true, not need Cluster.
+            if (!UrlUtils.isRegistry(curUrl) &&
+                    !curUrl.getParameter(UNLOAD_CLUSTER_RELATED, false)) {
+                List<Invoker<?>> invokers = new ArrayList<>();
+                invokers.add(invoker);
+                invoker = Cluster.getCluster(getScopeModel(), Cluster.DEFAULT).join(new StaticDirectory(curUrl, invokers), true);
+            }
         } else {
             List<Invoker<?>> invokers = new ArrayList<>();
             URL registryUrl = null;
@@ -485,33 +628,39 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
                 // registry url is available
                 // for multi-subscription scenario, use 'zone-aware' policy by default
                 String cluster = registryUrl.getParameter(CLUSTER_KEY, ZoneAwareCluster.NAME);
-                // The invoker wrap sequence would be: ZoneAwareClusterInvoker(StaticDirectory) -> FailoverClusterInvoker(RegistryDirectory, routing happens here) -> Invoker
-                invoker = Cluster.getCluster(cluster, false).join(new StaticDirectory(registryUrl, invokers));
+                // The invoker wrap sequence would be: ZoneAwareClusterInvoker(StaticDirectory) -> FailoverClusterInvoker
+                // (RegistryDirectory, routing happens here) -> Invoker
+                invoker = Cluster.getCluster(registryUrl.getScopeModel(), cluster, false).join(new StaticDirectory(registryUrl, invokers), false);
             } else {
                 // not a registry url, must be direct invoke.
-                String cluster = CollectionUtils.isNotEmpty(invokers)
-                    ?
-                    (invokers.get(0).getUrl() != null ? invokers.get(0).getUrl().getParameter(CLUSTER_KEY, ZoneAwareCluster.NAME) :
-                        Cluster.DEFAULT)
-                    : Cluster.DEFAULT;
-                invoker = Cluster.getCluster(cluster).join(new StaticDirectory(invokers));
+                if (CollectionUtils.isEmpty(invokers)) {
+                    throw new IllegalArgumentException("invokers == null");
+                }
+                URL curUrl = invokers.get(0).getUrl();
+                String cluster = curUrl.getParameter(CLUSTER_KEY, Cluster.DEFAULT);
+                invoker = Cluster.getCluster(getScopeModel(), cluster).join(new StaticDirectory(curUrl, invokers), true);
             }
         }
     }
 
     private void checkInvokerAvailable() throws IllegalStateException {
         if (shouldCheck() && !invoker.isAvailable()) {
-            invoker.destroy();
-            throw new IllegalStateException("Failed to check the status of the service "
-                + interfaceName
-                + ". No provider available for the service "
-                + (group == null ? "" : group + "/")
-                + interfaceName +
-                (version == null ? "" : ":" + version)
-                + " from the url "
-                + invoker.getUrl()
-                + " to the consumer "
-                + NetUtils.getLocalHost() + " use dubbo version " + Version.getVersion());
+            // 2-2 - No provider available.
+
+            IllegalStateException illegalStateException = new IllegalStateException("Failed to check the status of the service "
+                    + interfaceName
+                    + ". No provider available for the service "
+                    + (group == null ? "" : group + "/")
+                    + interfaceName +
+                    (version == null ? "" : ":" + version)
+                    + " from the url "
+                    + invoker.getUrl()
+                    + " to the consumer "
+                    + NetUtils.getLocalHost() + " use dubbo version " + Version.getVersion());
+
+            logger.error(CLUSTER_NO_VALID_PROVIDER, "provider not started", "", "No provider available.", illegalStateException);
+
+            throw illegalStateException;
         }
     }
 
@@ -529,22 +678,31 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
 
         // init some null configuration.
         List<ConfigInitializer> configInitializers = this.getExtensionLoader(ConfigInitializer.class)
-            .getActivateExtension(URL.valueOf("configInitializer://"), (String[]) null);
+                .getActivateExtension(URL.valueOf("configInitializer://"), (String[]) null);
         configInitializers.forEach(e -> e.initReferConfig(this));
 
         if (getGeneric() == null && getConsumer() != null) {
             setGeneric(getConsumer().getGeneric());
         }
         if (ProtocolUtils.isGeneric(generic)) {
+            if (interfaceClass != null && !interfaceClass.equals(GenericService.class)) {
+                logger.warn(CONFIG_PROPERTY_CONFLICT, "", "", String.format("Found conflicting attributes for interface type: [interfaceClass=%s] and [generic=%s], " +
+                        "because the 'generic' attribute has higher priority than 'interfaceClass', so change 'interfaceClass' to '%s'. " +
+                        "Note: it will make this reference bean as a candidate bean of type '%s' instead of '%s' when resolving dependency in Spring.",
+                    interfaceClass.getName(), generic, GenericService.class.getName(), GenericService.class.getName(), interfaceClass.getName()));
+            }
             interfaceClass = GenericService.class;
         } else {
             try {
-                interfaceClass = Class.forName(interfaceName, true, Thread.currentThread()
-                    .getContextClassLoader());
+                if (getInterfaceClassLoader() != null && (interfaceClass == null || interfaceClass.getClassLoader() != getInterfaceClassLoader())) {
+                    interfaceClass = Class.forName(interfaceName, true, getInterfaceClassLoader());
+                } else if (interfaceClass == null) {
+                    interfaceClass = Class.forName(interfaceName, true, Thread.currentThread()
+                            .getContextClassLoader());
+                }
             } catch (ClassNotFoundException e) {
                 throw new IllegalStateException(e.getMessage(), e);
             }
-            //checkInterfaceAndMethods(interfaceClass, getMethods());
         }
 
         checkStubAndLocal(interfaceClass);
@@ -579,7 +737,6 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
      * call, which is the default behavior
      */
     protected boolean shouldJvmRefer(Map<String, String> map) {
-        URL tmpUrl = new ServiceConfigURL("temp", "localhost", 0, map);
         boolean isJvmRefer;
         if (isInjvm() == null) {
             // if an url is specified, don't do local reference
@@ -587,7 +744,8 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
                 isJvmRefer = false;
             } else {
                 // by default, reference local service if there is
-                isJvmRefer = InjvmProtocol.getInjvmProtocol().isInjvmRefer(tmpUrl);
+                URL tmpUrl = new ServiceConfigURL("temp", "localhost", 0, map);
+                isJvmRefer = InjvmProtocol.getInjvmProtocol(getScopeModel()).isInjvmRefer(tmpUrl);
             }
         } else {
             isJvmRefer = isInjvm();
@@ -595,26 +753,23 @@ public class ReferenceConfig<T> extends ReferenceConfigBase<T> {
         return isJvmRefer;
     }
 
-    public DubboBootstrap getBootstrap() {
-        return bootstrap;
-    }
-
-    public void setBootstrap(DubboBootstrap bootstrap) {
-        this.bootstrap = bootstrap;
-    }
-
     private void postProcessConfig() {
         List<ConfigPostProcessor> configPostProcessors = this.getExtensionLoader(ConfigPostProcessor.class)
-            .getActivateExtension(URL.valueOf("configPostProcessor://"), (String[]) null);
+                .getActivateExtension(URL.valueOf("configPostProcessor://"), (String[]) null);
         configPostProcessors.forEach(component -> component.postProcessReferConfig(this));
     }
 
     /**
      * just for test
+     *
      * @return
      */
     @Deprecated
     public Invoker<?> getInvoker() {
         return invoker;
+    }
+
+    public Runnable getDestroyRunner() {
+        return this::destroy;
     }
 }

@@ -18,8 +18,9 @@ package org.apache.dubbo.spring.boot.context.event;
 
 import org.apache.dubbo.common.Version;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationEnvironmentPreparedEvent;
 import org.springframework.boot.logging.LoggingApplicationListener;
 import org.springframework.context.ApplicationListener;
@@ -30,7 +31,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.apache.dubbo.spring.boot.util.DubboUtils.DUBBO_GITHUB_URL;
 import static org.apache.dubbo.spring.boot.util.DubboUtils.DUBBO_MAILING_LIST;
-import static org.apache.dubbo.spring.boot.util.DubboUtils.DUBBO_SPRING_BOOT_GITHUB_URL;
 import static org.apache.dubbo.spring.boot.util.DubboUtils.LINE_SEPARATOR;
 
 /**
@@ -76,9 +76,6 @@ public class WelcomeLogoApplicationListener implements ApplicationListener<Appli
 
         bannerTextBuilder
                 .append(LINE_SEPARATOR)
-                .append(LINE_SEPARATOR)
-                .append(" :: Dubbo Spring Boot (v").append(Version.getVersion(getClass(), Version.getVersion())).append(") : ")
-                .append(DUBBO_SPRING_BOOT_GITHUB_URL)
                 .append(LINE_SEPARATOR)
                 .append(" :: Dubbo (v").append(Version.getVersion()).append(") : ")
                 .append(DUBBO_GITHUB_URL)

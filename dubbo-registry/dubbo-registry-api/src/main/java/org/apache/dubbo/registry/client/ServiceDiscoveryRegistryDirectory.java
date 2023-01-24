@@ -16,121 +16,146 @@
  */
 package org.apache.dubbo.registry.client;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
+
+import org.apache.dubbo.common.ProtocolServiceKey;
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.config.configcenter.DynamicConfiguration;
+import org.apache.dubbo.common.constants.CommonConstants;
 import org.apache.dubbo.common.extension.ExtensionLoader;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.utils.Assert;
 import org.apache.dubbo.common.utils.CollectionUtils;
+import org.apache.dubbo.common.utils.ConcurrentHashMapUtils;
 import org.apache.dubbo.common.utils.NetUtils;
+import org.apache.dubbo.metadata.MetadataInfo;
 import org.apache.dubbo.registry.AddressListener;
 import org.apache.dubbo.registry.Constants;
 import org.apache.dubbo.registry.ProviderFirstParams;
 import org.apache.dubbo.registry.integration.AbstractConfiguratorListener;
 import org.apache.dubbo.registry.integration.DynamicDirectory;
+import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Protocol;
+import org.apache.dubbo.rpc.Result;
 import org.apache.dubbo.rpc.RpcContext;
+import org.apache.dubbo.rpc.RpcException;
+import org.apache.dubbo.rpc.RpcInvocation;
 import org.apache.dubbo.rpc.RpcServiceContext;
 import org.apache.dubbo.rpc.cluster.Configurator;
 import org.apache.dubbo.rpc.cluster.RouterChain;
-import org.apache.dubbo.rpc.model.ApplicationModel;
-
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import org.apache.dubbo.rpc.cluster.directory.StaticDirectory;
+import org.apache.dubbo.rpc.cluster.router.state.BitList;
+import org.apache.dubbo.rpc.model.ModuleModel;
 
 import static org.apache.dubbo.common.constants.CommonConstants.DISABLED_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.ENABLED_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.PROTOCOL_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_FAILED_DESTROY_INVOKER;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_FAILED_REFER_INVOKER;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.PROTOCOL_UNSUPPORTED;
+import static org.apache.dubbo.common.constants.RegistryConstants.DEFAULT_HASHMAP_LOAD_FACTOR;
 import static org.apache.dubbo.common.constants.RegistryConstants.EMPTY_PROTOCOL;
 import static org.apache.dubbo.common.constants.RegistryConstants.REGISTRY_TYPE_KEY;
 import static org.apache.dubbo.common.constants.RegistryConstants.SERVICE_REGISTRY_TYPE;
 import static org.apache.dubbo.registry.Constants.CONFIGURATORS_SUFFIX;
-import static org.apache.dubbo.rpc.model.ScopeModelUtil.getApplicationModel;
+import static org.apache.dubbo.rpc.model.ScopeModelUtil.getModuleModel;
 
 public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
-    private static final Logger logger = LoggerFactory.getLogger(ServiceDiscoveryRegistryDirectory.class);
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(ServiceDiscoveryRegistryDirectory.class);
 
     /**
      * instance address to invoker mapping.
      * The initial value is null and the midway may be assigned to null, please use the local variable reference
      */
-    private volatile Map<String, Invoker<T>> urlInvokerMap;
-    private final ConsumerConfigurationListener consumerConfigurationListener;
+    private volatile Map<ProtocolServiceKeyWithAddress, Invoker<T>> urlInvokerMap;
     private volatile ReferenceConfigurationListener referenceConfigurationListener;
     private volatile boolean enableConfigurationListen = true;
     private volatile List<URL> originalUrls = null;
     private volatile Map<String, String> overrideQueryMap;
-    private volatile Map<String, String> consumerFirstQueryMap;
-    private final ApplicationModel applicationModel;
+    private final Set<String> providerFirstParams;
+    private final ModuleModel moduleModel;
+    private final ProtocolServiceKey consumerProtocolServiceKey;
+    private final ConcurrentMap<ProtocolServiceKey, URL> customizedConsumerUrlMap = new ConcurrentHashMap<>();
 
     public ServiceDiscoveryRegistryDirectory(Class<T> serviceType, URL url) {
         super(serviceType, url);
-        applicationModel = getApplicationModel(url.getScopeModel());
-        consumerConfigurationListener = new ConsumerConfigurationListener(applicationModel);
+        moduleModel = getModuleModel(url.getScopeModel());
 
-        Set<ProviderFirstParams> providerFirstParams = ExtensionLoader.getExtensionLoader(ProviderFirstParams.class).getSupportedExtensionInstances();
+        Set<ProviderFirstParams> providerFirstParams = url.getOrDefaultApplicationModel().getExtensionLoader(ProviderFirstParams.class).getSupportedExtensionInstances();
         if (CollectionUtils.isEmpty(providerFirstParams)) {
-            consumerFirstQueryMap = queryMap;
+            this.providerFirstParams = null;
         } else {
-            consumerFirstQueryMap = new HashMap<>(queryMap);
-            for (ProviderFirstParams paramsFilter : providerFirstParams) {
-                if (paramsFilter.params() == null) {
-                    break;
+            if (providerFirstParams.size() == 1) {
+                this.providerFirstParams = Collections.unmodifiableSet(providerFirstParams.iterator().next().params());
+            } else {
+                Set<String> params = new HashSet<>();
+                for (ProviderFirstParams paramsFilter : providerFirstParams) {
+                    if (paramsFilter.params() == null) {
+                        break;
+                    }
+                    params.addAll(paramsFilter.params());
                 }
-                for (String keyToRemove : paramsFilter.params()) {
-                    consumerFirstQueryMap.remove(keyToRemove);
-                }
+                this.providerFirstParams = Collections.unmodifiableSet(params);
             }
         }
 
+        String protocol = consumerUrl.getParameter(PROTOCOL_KEY, consumerUrl.getProtocol());
+        consumerProtocolServiceKey = new ProtocolServiceKey(consumerUrl.getServiceInterface(), consumerUrl.getVersion(), consumerUrl.getGroup(),
+            !CommonConstants.CONSUMER.equals(protocol) ? protocol : null);
     }
 
     @Override
     public void subscribe(URL url) {
-        if (applicationModel.getApplicationEnvironment().getConfiguration().convert(Boolean.class, Constants.ENABLE_CONFIGURATION_LISTEN, true)) {
+        if (moduleModel.getModelEnvironment().getConfiguration().convert(Boolean.class, Constants.ENABLE_CONFIGURATION_LISTEN, true)) {
             enableConfigurationListen = true;
-            consumerConfigurationListener.addNotifyListener(this);
-            referenceConfigurationListener = new ReferenceConfigurationListener(this.applicationModel, this, url);
+            getConsumerConfigurationListener(moduleModel).addNotifyListener(this);
+            referenceConfigurationListener = new ReferenceConfigurationListener(this.moduleModel, this, url);
         } else {
             enableConfigurationListen = false;
         }
         super.subscribe(url);
     }
 
+    private ConsumerConfigurationListener getConsumerConfigurationListener(ModuleModel moduleModel) {
+        return moduleModel.getBeanFactory().getOrRegisterBean(ConsumerConfigurationListener.class,
+            type -> new ConsumerConfigurationListener(moduleModel));
+    }
+
     @Override
     public void unSubscribe(URL url) {
         super.unSubscribe(url);
         this.originalUrls = null;
-        if (applicationModel.getApplicationEnvironment().getConfiguration().convert(Boolean.class, Constants.ENABLE_CONFIGURATION_LISTEN, true)) {
-            consumerConfigurationListener.removeNotifyListener(this);
+        if (moduleModel.getModelEnvironment().getConfiguration().convert(Boolean.class, Constants.ENABLE_CONFIGURATION_LISTEN, true)) {
+            getConsumerConfigurationListener(moduleModel).removeNotifyListener(this);
+            referenceConfigurationListener.stop();
+        }
+    }
+
+    @Override
+    public void destroy() {
+        super.destroy();
+        if (moduleModel.getModelEnvironment().getConfiguration().convert(Boolean.class, Constants.ENABLE_CONFIGURATION_LISTEN, true)) {
+            getConsumerConfigurationListener(moduleModel).removeNotifyListener(this);
             referenceConfigurationListener.stop();
         }
     }
 
     @Override
     public void buildRouterChain(URL url) {
-        this.setRouterChain(RouterChain.buildChain(url.addParameter(REGISTRY_TYPE_KEY, SERVICE_REGISTRY_TYPE)));
-    }
-
-    @Override
-    public boolean isAvailable() {
-        if (isDestroyed()) {
-            return false;
-        }
-        Map<String, Invoker<T>> localUrlInvokerMap = urlInvokerMap;
-        if (localUrlInvokerMap != null && localUrlInvokerMap.size() > 0) {
-            for (Invoker<T> invoker : new ArrayList<>(localUrlInvokerMap.values())) {
-                if (invoker.isAvailable()) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        this.setRouterChain(RouterChain.buildChain(getInterface(), url.addParameter(REGISTRY_TYPE_KEY, SERVICE_REGISTRY_TYPE)));
     }
 
     @Override
@@ -139,10 +164,10 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
             return;
         }
         // Set the context of the address notification thread.
-        RpcServiceContext.setRpcContext(getConsumerUrl());
+        RpcServiceContext.getServiceContext().setConsumerUrl(getConsumerUrl());
 
         //  3.x added for extend URL address
-        ExtensionLoader<AddressListener> addressListenerExtensionLoader = ExtensionLoader.getExtensionLoader(AddressListener.class);
+        ExtensionLoader<AddressListener> addressListenerExtensionLoader = getUrl().getOrDefaultModuleModel().getExtensionLoader(AddressListener.class);
         List<AddressListener> supportedListeners = addressListenerExtensionLoader.getActivateExtension(getUrl(), (String[]) null);
         if (supportedListeners != null && !supportedListeners.isEmpty()) {
             for (AddressListener addressListener : supportedListeners) {
@@ -156,38 +181,12 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
     // RefreshOverrideAndInvoker will be executed by registryCenter and configCenter, so it should be synchronized.
     private synchronized void refreshOverrideAndInvoker(List<URL> instanceUrls) {
         // mock zookeeper://xxx?mock=return null
-        if (enableConfigurationListen) {
-            overrideDirectoryUrl();
-        }
         refreshInvoker(instanceUrls);
-    }
-
-    // TODO: exact
-    private void overrideDirectoryUrl() {
-        // merge override parameters
-        this.overrideDirectoryUrl = directoryUrl;
-        List<Configurator> localAppDynamicConfigurators = consumerConfigurationListener.getConfigurators(); // local reference
-        doOverrideUrl(localAppDynamicConfigurators);
-        if (referenceConfigurationListener != null) {
-            List<Configurator> localDynamicConfigurators = referenceConfigurationListener.getConfigurators(); // local reference
-            doOverrideUrl(localDynamicConfigurators);
-        }
-    }
-
-    private void doOverrideUrl(List<Configurator> configurators) {
-        if (CollectionUtils.isNotEmpty(configurators)) {
-            for (Configurator configurator : configurators) {
-                this.overrideDirectoryUrl = configurator.configure(overrideDirectoryUrl);
-                Map<String, String> newParams = new HashMap<>(this.overrideDirectoryUrl.getParameters());
-                directoryUrl.getParameters().forEach(newParams::remove);
-                this.overrideQueryMap = newParams;
-            }
-        }
     }
 
     private InstanceAddressURL overrideWithConfigurator(InstanceAddressURL providerUrl) {
         // override url with configurator from "app-name.configurators"
-        providerUrl = overrideWithConfigurators(consumerConfigurationListener.getConfigurators(), providerUrl);
+        providerUrl = overrideWithConfigurators(getConsumerConfigurationListener(moduleModel).getConfigurators(), providerUrl);
 
         // override url with configurator from configurators from "service-name.configurators"
         if (referenceConfigurationListener != null) {
@@ -230,107 +229,156 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
     }
 
     private void refreshInvoker(List<URL> invokerUrls) {
-        Assert.notNull(invokerUrls, "invokerUrls should not be null, use empty url list to clear address.");
+        Assert.notNull(invokerUrls, "invokerUrls should not be null, use EMPTY url to clear current addresses.");
         this.originalUrls = invokerUrls;
 
-        if (invokerUrls.size() == 0) {
-            logger.info("Received empty url list...");
-            this.forbidden = true; // Forbid to access
-            this.invokers = Collections.emptyList();
-            routerChain.setInvokers(this.invokers);
+        if (invokerUrls.size() == 1 && EMPTY_PROTOCOL.equals(invokerUrls.get(0).getProtocol())) {
+            logger.warn(PROTOCOL_UNSUPPORTED, "", "", "Received url with EMPTY protocol, will clear all available addresses.");
+            refreshRouter(BitList.emptyList(), () ->
+                this.forbidden = true // Forbid to access
+            );
             destroyAllInvokers(); // Close all invokers
         } else {
             this.forbidden = false; // Allow accessing
-            Map<String, Invoker<T>> oldUrlInvokerMap = this.urlInvokerMap; // local reference
             if (CollectionUtils.isEmpty(invokerUrls)) {
+                logger.warn(PROTOCOL_UNSUPPORTED, "", "", "Received empty url list, will ignore for protection purpose.");
                 return;
             }
 
-            Map<String, Invoker<T>> newUrlInvokerMap = toInvokers(invokerUrls);// Translate url list to Invoker map
+            // use local reference to avoid NPE as this.urlInvokerMap will be set null concurrently at destroyAllInvokers().
+            Map<ProtocolServiceKeyWithAddress, Invoker<T>> localUrlInvokerMap = this.urlInvokerMap;
+            // can't use local reference as oldUrlInvokerMap's mappings might be removed directly at toInvokers().
+            Map<ProtocolServiceKeyWithAddress, Invoker<T>> oldUrlInvokerMap = null;
+            if (localUrlInvokerMap != null) {
+                // the initial capacity should be set greater than the maximum number of entries divided by the load factor to avoid resizing.
+                oldUrlInvokerMap = new LinkedHashMap<>(Math.round(1 + localUrlInvokerMap.size() / DEFAULT_HASHMAP_LOAD_FACTOR));
+                localUrlInvokerMap.forEach(oldUrlInvokerMap::put);
+            }
+            Map<ProtocolServiceKeyWithAddress, Invoker<T>> newUrlInvokerMap = toInvokers(oldUrlInvokerMap, invokerUrls);// Translate url list to Invoker map
             logger.info("Refreshed invoker size " + newUrlInvokerMap.size());
 
             if (CollectionUtils.isEmptyMap(newUrlInvokerMap)) {
-                logger.error(new IllegalStateException("Cannot create invokers from url address list (total " + invokerUrls.size() + ")"));
+                logger.error(PROTOCOL_UNSUPPORTED, "", "", "Unsupported protocol.", new IllegalStateException("Cannot create invokers from url address list (total " + invokerUrls.size() + ")"));
                 return;
             }
             List<Invoker<T>> newInvokers = Collections.unmodifiableList(new ArrayList<>(newUrlInvokerMap.values()));
-            // pre-route and build cache, notice that route cache should build on original Invoker list.
-            // toMergeMethodInvokerMap() will wrap some invokers having different groups, those wrapped invokers not should be routed.
-            routerChain.setInvokers(newInvokers);
-            this.invokers = multiGroup ? toMergeInvokerList(newInvokers) : newInvokers;
+            BitList<Invoker<T>> finalInvokers = multiGroup ? new BitList<>(toMergeInvokerList(newInvokers)) : new BitList<>(newInvokers);
+            // pre-route and build cache
+            refreshRouter(finalInvokers.clone(), () -> this.setInvokers(finalInvokers));
             this.urlInvokerMap = newUrlInvokerMap;
 
             if (oldUrlInvokerMap != null) {
                 try {
                     destroyUnusedInvokers(oldUrlInvokerMap, newUrlInvokerMap); // Close the unused Invoker
                 } catch (Exception e) {
-                    logger.warn("destroyUnusedInvokers error. ", e);
+                    logger.warn(PROTOCOL_FAILED_DESTROY_INVOKER, "", "", "destroyUnusedInvokers error. ", e);
                 }
             }
         }
 
         // notify invokers refreshed
         this.invokersChanged();
+
+        logger.info("Received invokers changed event from registry. " +
+            "Registry type: instance. " +
+            "Service Key: " + getConsumerUrl().getServiceKey() + ". " +
+            "Urls Size : " + invokerUrls.size() + ". " +
+            "Invokers Size : " + getInvokers().size() + ". " +
+            "Available Size: " + getValidInvokers().size() + ". " +
+            "Available Invokers : " + joinValidInvokerAddresses());
     }
 
     /**
      * Turn urls into invokers, and if url has been refer, will not re-reference.
+     * the items that will be put into newUrlInvokeMap will be removed from oldUrlInvokerMap.
      *
+     * @param oldUrlInvokerMap it might be modified during the process.
      * @param urls
      * @return invokers
      */
-    private Map<String, Invoker<T>> toInvokers(List<URL> urls) {
-        Map<String, Invoker<T>> newUrlInvokerMap = new HashMap<>();
+    private Map<ProtocolServiceKeyWithAddress, Invoker<T>> toInvokers(Map<ProtocolServiceKeyWithAddress, Invoker<T>> oldUrlInvokerMap, List<URL> urls) {
+        Map<ProtocolServiceKeyWithAddress, Invoker<T>> newUrlInvokerMap = new ConcurrentHashMap<>(urls == null ? 1 : (int) (urls.size() / 0.75f + 1));
         if (urls == null || urls.isEmpty()) {
             return newUrlInvokerMap;
         }
+
         for (URL url : urls) {
             InstanceAddressURL instanceAddressURL = (InstanceAddressURL) url;
             if (EMPTY_PROTOCOL.equals(instanceAddressURL.getProtocol())) {
                 continue;
             }
-            if (!ExtensionLoader.getExtensionLoader(Protocol.class).hasExtension(instanceAddressURL.getProtocol())) {
-                logger.error(new IllegalStateException("Unsupported protocol " + instanceAddressURL.getProtocol() +
-                    " in notified url: " + instanceAddressURL + " from registry " + getUrl().getAddress() +
-                    " to consumer " + NetUtils.getLocalHost() + ", supported protocol: " +
-                    ExtensionLoader.getExtensionLoader(Protocol.class).getSupportedExtensions()));
+            if (!getUrl().getOrDefaultFrameworkModel().getExtensionLoader(Protocol.class).hasExtension(instanceAddressURL.getProtocol())) {
+
+                // 4-1 - Unsupported protocol
+
+                logger.error(PROTOCOL_UNSUPPORTED, "protocol extension does not installed", "", "Unsupported protocol.",
+                    new IllegalStateException("Unsupported protocol " + instanceAddressURL.getProtocol() +
+                        " in notified url: " + instanceAddressURL + " from registry " + getUrl().getAddress() +
+                        " to consumer " + NetUtils.getLocalHost() + ", supported protocol: " +
+                        getUrl().getOrDefaultFrameworkModel().getExtensionLoader(Protocol.class).getSupportedExtensions()));
+
                 continue;
             }
 
-            instanceAddressURL.addConsumerParams(getConsumerUrl().getProtocolServiceKey(), consumerFirstQueryMap);
+            instanceAddressURL.setProviderFirstParams(providerFirstParams);
 
             // Override provider urls if needed
             if (enableConfigurationListen) {
                 instanceAddressURL = overrideWithConfigurator(instanceAddressURL);
             }
 
-            Invoker<T> invoker = urlInvokerMap == null ? null : urlInvokerMap.get(instanceAddressURL.getAddress());
-            if (invoker == null || urlChanged(invoker, instanceAddressURL)) { // Not in the cache, refer again
-                try {
-                    boolean enabled = true;
-                    if (instanceAddressURL.hasParameter(DISABLED_KEY)) {
-                        enabled = !instanceAddressURL.getParameter(DISABLED_KEY, false);
-                    } else {
-                        enabled = instanceAddressURL.getParameter(ENABLED_KEY, true);
+            // filter all the service available (version wildcard, group wildcard, protocol wildcard)
+            int port = instanceAddressURL.getPort();
+            List<ProtocolServiceKey> matchedProtocolServiceKeys = instanceAddressURL.getMetadataInfo()
+                .getMatchedServiceInfos(consumerProtocolServiceKey)
+                .stream()
+                .filter(serviceInfo -> serviceInfo.getPort() <= 0 || serviceInfo.getPort() == port)
+                .map(MetadataInfo.ServiceInfo::getProtocolServiceKey)
+                .collect(Collectors.toList());
+
+            // see org.apache.dubbo.common.ProtocolServiceKey.isSameWith
+            // check if needed to override the consumer url
+            boolean shouldWrap = matchedProtocolServiceKeys.size() != 1 || !consumerProtocolServiceKey.isSameWith(matchedProtocolServiceKeys.get(0));
+
+            for (ProtocolServiceKey matchedProtocolServiceKey : matchedProtocolServiceKeys) {
+                ProtocolServiceKeyWithAddress protocolServiceKeyWithAddress = new ProtocolServiceKeyWithAddress(matchedProtocolServiceKey, instanceAddressURL.getAddress());
+                Invoker<T> invoker = oldUrlInvokerMap == null ? null : oldUrlInvokerMap.get(protocolServiceKeyWithAddress);
+                if (invoker == null || urlChanged(invoker, instanceAddressURL, matchedProtocolServiceKey)) { // Not in the cache, refer again
+                    try {
+                        boolean enabled;
+                        if (instanceAddressURL.hasParameter(DISABLED_KEY)) {
+                            enabled = !instanceAddressURL.getParameter(DISABLED_KEY, false);
+                        } else {
+                            enabled = instanceAddressURL.getParameter(ENABLED_KEY, true);
+                        }
+                        if (enabled) {
+                            if (shouldWrap) {
+                                URL newConsumerUrl = ConcurrentHashMapUtils.computeIfAbsent(customizedConsumerUrlMap, matchedProtocolServiceKey,
+                                    k -> consumerUrl.setProtocol(k.getProtocol())
+                                        .addParameter(CommonConstants.GROUP_KEY, k.getGroup())
+                                        .addParameter(CommonConstants.VERSION_KEY, k.getVersion()));
+                                RpcContext.getServiceContext().setConsumerUrl(newConsumerUrl);
+                                invoker = new InstanceWrappedInvoker<>(protocol.refer(serviceType, instanceAddressURL), newConsumerUrl, matchedProtocolServiceKey);
+                            } else {
+                                invoker = protocol.refer(serviceType, instanceAddressURL);
+                            }
+                        }
+                    } catch (Throwable t) {
+                        logger.error(PROTOCOL_FAILED_REFER_INVOKER, "", "", "Failed to refer invoker for interface:" + serviceType + ",url:(" + instanceAddressURL + ")" + t.getMessage(), t);
                     }
-                    if (enabled) {
-                        invoker = protocol.refer(serviceType, instanceAddressURL);
+                    if (invoker != null) { // Put new invoker in cache
+                        newUrlInvokerMap.put(protocolServiceKeyWithAddress, invoker);
                     }
-                } catch (Throwable t) {
-                    logger.error("Failed to refer invoker for interface:" + serviceType + ",url:(" + instanceAddressURL + ")" + t.getMessage(), t);
+                } else {
+                    newUrlInvokerMap.put(protocolServiceKeyWithAddress, invoker);
+                    oldUrlInvokerMap.remove(protocolServiceKeyWithAddress, invoker);
                 }
-                if (invoker != null) { // Put new invoker in cache
-                    newUrlInvokerMap.put(instanceAddressURL.getAddress(), invoker);
-                }
-            } else {
-                newUrlInvokerMap.put(instanceAddressURL.getAddress(), invoker);
-                urlInvokerMap.remove(instanceAddressURL.getAddress(), invoker);
             }
         }
         return newUrlInvokerMap;
     }
 
-    private boolean urlChanged(Invoker<T> invoker, InstanceAddressURL newURL) {
+    private boolean urlChanged(Invoker<T> invoker, InstanceAddressURL newURL, ProtocolServiceKey protocolServiceKey) {
         InstanceAddressURL oldURL = (InstanceAddressURL) invoker.getUrl();
 
         if (!newURL.getInstance().equals(oldURL.getInstance())) {
@@ -338,7 +386,7 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
         }
 
         if (oldURL instanceof OverrideInstanceAddressURL || newURL instanceof OverrideInstanceAddressURL) {
-            if(!(oldURL instanceof OverrideInstanceAddressURL && newURL instanceof OverrideInstanceAddressURL)) {
+            if (!(oldURL instanceof OverrideInstanceAddressURL && newURL instanceof OverrideInstanceAddressURL)) {
                 // sub-class changed
                 return true;
             } else {
@@ -348,12 +396,35 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
             }
         }
 
-        return !oldURL.getMetadataInfo().getServiceInfo(getConsumerUrl().getProtocolServiceKey())
-            .equals(newURL.getMetadataInfo().getServiceInfo(getConsumerUrl().getProtocolServiceKey()));
+        MetadataInfo.ServiceInfo oldServiceInfo = oldURL.getMetadataInfo().getValidServiceInfo(protocolServiceKey.toString());
+        if (null == oldServiceInfo) {
+            return false;
+        }
+
+        return !oldServiceInfo.equals(newURL.getMetadataInfo().getValidServiceInfo(protocolServiceKey.toString()));
     }
 
     private List<Invoker<T>> toMergeInvokerList(List<Invoker<T>> invokers) {
-        return invokers;
+        List<Invoker<T>> mergedInvokers = new ArrayList<>();
+        Map<String, List<Invoker<T>>> groupMap = new HashMap<>();
+        for (Invoker<T> invoker : invokers) {
+            String group = invoker.getUrl().getGroup("");
+            groupMap.computeIfAbsent(group, k -> new ArrayList<>());
+            groupMap.get(group).add(invoker);
+        }
+
+        if (groupMap.size() == 1) {
+            mergedInvokers.addAll(groupMap.values().iterator().next());
+        } else if (groupMap.size() > 1) {
+            for (List<Invoker<T>> groupList : groupMap.values()) {
+                StaticDirectory<T> staticDirectory = new StaticDirectory<>(groupList);
+                staticDirectory.buildRouterChain();
+                mergedInvokers.add(cluster.join(staticDirectory, false));
+            }
+        } else {
+            mergedInvokers = invokers;
+        }
+        return mergedInvokers;
     }
 
     /**
@@ -361,20 +432,20 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
      */
     @Override
     protected void destroyAllInvokers() {
-        Map<String, Invoker<T>> localUrlInvokerMap = this.urlInvokerMap; // local reference
+        Map<ProtocolServiceKeyWithAddress, Invoker<T>> localUrlInvokerMap = this.urlInvokerMap; // local reference
         if (localUrlInvokerMap != null) {
             for (Invoker<T> invoker : new ArrayList<>(localUrlInvokerMap.values())) {
                 try {
                     invoker.destroy();
                 } catch (Throwable t) {
-                    logger.warn("Failed to destroy service " + serviceKey + " to provider " + invoker.getUrl(), t);
+                    logger.warn(PROTOCOL_FAILED_DESTROY_INVOKER, "", "", "Failed to destroy service " + serviceKey + " to provider " + invoker.getUrl(), t);
                 }
             }
             localUrlInvokerMap.clear();
         }
 
         this.urlInvokerMap = null;
-        this.invokers = null;
+        this.destroyInvokers();
     }
 
     /**
@@ -384,7 +455,7 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
      * @param oldUrlInvokerMap
      * @param newUrlInvokerMap
      */
-    private void destroyUnusedInvokers(Map<String, Invoker<T>> oldUrlInvokerMap, Map<String, Invoker<T>> newUrlInvokerMap) {
+    private void destroyUnusedInvokers(Map<ProtocolServiceKeyWithAddress, Invoker<T>> oldUrlInvokerMap, Map<ProtocolServiceKeyWithAddress, Invoker<T>> newUrlInvokerMap) {
         if (newUrlInvokerMap == null || newUrlInvokerMap.size() == 0) {
             destroyAllInvokers();
             return;
@@ -394,7 +465,7 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
             return;
         }
 
-        for (Map.Entry<String, Invoker<T>> entry : oldUrlInvokerMap.entrySet()) {
+        for (Map.Entry<ProtocolServiceKeyWithAddress, Invoker<T>> entry : oldUrlInvokerMap.entrySet()) {
             Invoker<T> invoker = entry.getValue();
             if (invoker != null) {
                 try {
@@ -403,7 +474,7 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
                         logger.debug("destroy invoker[" + invoker.getUrl() + "] success. ");
                     }
                 } catch (Exception e) {
-                    logger.warn("destroy invoker[" + invoker.getUrl() + "] failed. " + e.getMessage(), e);
+                    logger.warn(PROTOCOL_FAILED_DESTROY_INVOKER, "", "", "destroy invoker[" + invoker.getUrl() + "]failed." + e.getMessage(), e);
                 }
             }
         }
@@ -414,8 +485,8 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
         private final ServiceDiscoveryRegistryDirectory<?> directory;
         private final URL url;
 
-        ReferenceConfigurationListener(ApplicationModel applicationModel, ServiceDiscoveryRegistryDirectory<?> directory, URL url) {
-            super(applicationModel);
+        ReferenceConfigurationListener(ModuleModel moduleModel, ServiceDiscoveryRegistryDirectory<?> directory, URL url) {
+            super(moduleModel);
             this.directory = directory;
             this.url = url;
             this.initWith(DynamicConfiguration.getRuleKey(url) + CONFIGURATORS_SUFFIX);
@@ -437,16 +508,16 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
         }
     }
 
-    private class ConsumerConfigurationListener extends AbstractConfiguratorListener {
+    private static class ConsumerConfigurationListener extends AbstractConfiguratorListener {
         private final List<ServiceDiscoveryRegistryDirectory<?>> listeners = new ArrayList<>();
 
-        ConsumerConfigurationListener(ApplicationModel applicationModel) {
-            super(applicationModel);
+        ConsumerConfigurationListener(ModuleModel moduleModel) {
+            super(moduleModel);
         }
 
         void addNotifyListener(ServiceDiscoveryRegistryDirectory<?> listener) {
             if (listeners.size() == 0) {
-                this.initWith(applicationModel.getApplicationName() + CONFIGURATORS_SUFFIX);
+                this.initWith(moduleModel.getApplicationModel().getApplicationName() + CONFIGURATORS_SUFFIX);
             }
             this.listeners.add(listener);
         }
@@ -454,7 +525,7 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
         void removeNotifyListener(ServiceDiscoveryRegistryDirectory<?> listener) {
             this.listeners.remove(listener);
             if (listeners.size() == 0) {
-                this.stopListen(applicationModel.getApplicationName() + CONFIGURATORS_SUFFIX);
+                this.stopListen(moduleModel.getApplicationModel().getApplicationName() + CONFIGURATORS_SUFFIX);
             }
         }
 
@@ -470,4 +541,88 @@ public class ServiceDiscoveryRegistryDirectory<T> extends DynamicDirectory<T> {
             });
         }
     }
+
+    public static final class ProtocolServiceKeyWithAddress extends ProtocolServiceKey {
+        private final String address;
+
+        public ProtocolServiceKeyWithAddress(ProtocolServiceKey protocolServiceKey, String address) {
+            super(protocolServiceKey.getInterfaceName(), protocolServiceKey.getVersion(), protocolServiceKey.getGroup(), protocolServiceKey.getProtocol());
+            this.address = address;
+        }
+
+        public String getAddress() {
+            return address;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            if (!super.equals(o)) {
+                return false;
+            }
+            ProtocolServiceKeyWithAddress that = (ProtocolServiceKeyWithAddress) o;
+            return Objects.equals(address, that.address);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(super.hashCode(), address);
+        }
+    }
+
+    public static final class InstanceWrappedInvoker<T> implements Invoker<T> {
+        private final Invoker<T> originInvoker;
+        private final URL newConsumerUrl;
+        private final ProtocolServiceKey protocolServiceKey;
+
+        public InstanceWrappedInvoker(Invoker<T> originInvoker, URL newConsumerUrl, ProtocolServiceKey protocolServiceKey) {
+            this.originInvoker = originInvoker;
+            this.newConsumerUrl = newConsumerUrl;
+            this.protocolServiceKey = protocolServiceKey;
+        }
+
+        @Override
+        public Class<T> getInterface() {
+            return originInvoker.getInterface();
+        }
+
+        @Override
+        public Result invoke(Invocation invocation) throws RpcException {
+            // override consumer url with real protocol service key
+            RpcContext.getServiceContext().setConsumerUrl(newConsumerUrl);
+            // recreate invocation due to the protocol service key changed
+            RpcInvocation copiedInvocation = new RpcInvocation(invocation.getTargetServiceUniqueName(),
+                invocation.getServiceModel(), invocation.getMethodName(), invocation.getServiceName(), protocolServiceKey.toString(),
+                invocation.getParameterTypes(), invocation.getArguments(), invocation.getObjectAttachments(),
+                invocation.getInvoker(), invocation.getAttributes(),
+                invocation instanceof RpcInvocation ? ((RpcInvocation) invocation).getInvokeMode() : null);
+            copiedInvocation.setObjectAttachment(CommonConstants.GROUP_KEY, protocolServiceKey.getGroup());
+            copiedInvocation.setObjectAttachment(CommonConstants.VERSION_KEY, protocolServiceKey.getVersion());
+            return originInvoker.invoke(copiedInvocation);
+        }
+
+        @Override
+        public URL getUrl() {
+            RpcContext.getServiceContext().setConsumerUrl(newConsumerUrl);
+            return originInvoker.getUrl();
+        }
+
+        @Override
+        public boolean isAvailable() {
+            RpcContext.getServiceContext().setConsumerUrl(newConsumerUrl);
+            return originInvoker.isAvailable();
+        }
+
+        @Override
+        public void destroy() {
+            RpcContext.getServiceContext().setConsumerUrl(newConsumerUrl);
+            originInvoker.destroy();
+        }
+    }
+
 }

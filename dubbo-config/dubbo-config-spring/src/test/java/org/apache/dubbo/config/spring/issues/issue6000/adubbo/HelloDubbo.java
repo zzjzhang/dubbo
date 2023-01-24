@@ -17,14 +17,15 @@
 package org.apache.dubbo.config.spring.issues.issue6000.adubbo;
 
 import org.apache.dubbo.config.spring.api.HelloService;
-import org.springframework.stereotype.Component;
 
-import javax.annotation.Resource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 @Component
 public class HelloDubbo {
     HelloService helloService;
-    @Resource
+
+    @Autowired
     public void setHelloService(HelloService helloService) {
         this.helloService = helloService;
     }

@@ -38,7 +38,7 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 
-public class HeartbeatHandlerTest {
+class HeartbeatHandlerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(HeartbeatHandlerTest.class);
 
@@ -57,16 +57,19 @@ public class HeartbeatHandlerTest {
             server = null;
         }
 
+        FakeChannelHandlers.resetChannelHandlers();
+
         // wait for timer to finish
         Thread.sleep(2000);
     }
 
     @Test
-    public void testServerHeartbeat() throws Exception {
+    void testServerHeartbeat() throws Exception {
+        FakeChannelHandlers.resetChannelHandlers();
         URL serverURL = URL.valueOf("telnet://localhost:" + NetUtils.getAvailablePort(56780))
-                .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
-                .addParameter(Constants.TRANSPORTER_KEY, "netty3")
-                .addParameter(Constants.HEARTBEAT_KEY, 1000);
+            .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
+            .addParameter(Constants.TRANSPORTER_KEY, "netty3")
+            .addParameter(Constants.HEARTBEAT_KEY, 1000);
         CountDownLatch connect = new CountDownLatch(1);
         CountDownLatch disconnect = new CountDownLatch(1);
         TestHeartbeatHandler handler = new TestHeartbeatHandler(connect, disconnect);
@@ -79,6 +82,7 @@ public class HeartbeatHandlerTest {
         // Let the client not reply to the heartbeat, and turn off automatic reconnect to simulate the client dropped.
         serverURL = serverURL.addParameter(Constants.HEARTBEAT_KEY, 600 * 1000);
         serverURL = serverURL.addParameter(Constants.RECONNECT_KEY, false);
+        serverURL = serverURL.addParameter(Constants.CODEC_KEY, "telnet");
 
         client = Exchangers.connect(serverURL);
         disconnect.await();
@@ -87,11 +91,12 @@ public class HeartbeatHandlerTest {
     }
 
     @Test
-    public void testHeartbeat() throws Exception {
+    void testHeartbeat() throws Exception {
         URL serverURL = URL.valueOf("telnet://localhost:" + NetUtils.getAvailablePort(56785))
-                .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
-                .addParameter(Constants.TRANSPORTER_KEY, "netty3")
-                .addParameter(Constants.HEARTBEAT_KEY, 1000);
+            .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
+            .addParameter(Constants.TRANSPORTER_KEY, "netty3")
+            .addParameter(Constants.HEARTBEAT_KEY, 1000)
+            .addParameter(Constants.CODEC_KEY, "telnet");
         CountDownLatch connect = new CountDownLatch(1);
         CountDownLatch disconnect = new CountDownLatch(1);
         TestHeartbeatHandler handler = new TestHeartbeatHandler(connect, disconnect);
@@ -107,11 +112,12 @@ public class HeartbeatHandlerTest {
     }
 
     @Test
-    public void testClientHeartbeat() throws Exception {
+    void testClientHeartbeat() throws Exception {
         FakeChannelHandlers.setTestingChannelHandlers();
         URL serverURL = URL.valueOf("telnet://localhost:" + NetUtils.getAvailablePort(56790))
-                .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
-                .addParameter(Constants.TRANSPORTER_KEY, "netty3");
+            .addParameter(Constants.EXCHANGER_KEY, HeaderExchanger.NAME)
+            .addParameter(Constants.TRANSPORTER_KEY, "netty3")
+            .addParameter(Constants.CODEC_KEY, "telnet");
         CountDownLatch connect = new CountDownLatch(1);
         CountDownLatch disconnect = new CountDownLatch(1);
         TestHeartbeatHandler handler = new TestHeartbeatHandler(connect, disconnect);

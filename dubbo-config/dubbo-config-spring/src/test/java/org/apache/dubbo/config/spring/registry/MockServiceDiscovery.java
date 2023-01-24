@@ -16,19 +16,25 @@
  */
 package org.apache.dubbo.config.spring.registry;
 
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
 import org.apache.dubbo.common.URL;
 import org.apache.dubbo.registry.client.AbstractServiceDiscovery;
 import org.apache.dubbo.registry.client.ServiceInstance;
-
-import java.util.HashSet;
-import java.util.Set;
+import org.apache.dubbo.rpc.model.ApplicationModel;
 
 public class MockServiceDiscovery extends AbstractServiceDiscovery {
     private URL registryURL;
 
-    @Override
-    public void doInitialize(URL registryURL) throws Exception {
-        this.registryURL = registryURL;
+    public MockServiceDiscovery(ApplicationModel applicationModel, URL registryURL) {
+        super(applicationModel, registryURL);
+    }
+
+    public MockServiceDiscovery(String serviceName, URL registryURL) {
+        super(serviceName, registryURL);
     }
 
     @Override
@@ -41,7 +47,7 @@ public class MockServiceDiscovery extends AbstractServiceDiscovery {
     }
 
     @Override
-    public void doUpdate(ServiceInstance serviceInstance) throws RuntimeException {
+    public void doUpdate(ServiceInstance oldServiceInstance, ServiceInstance newServiceInstance) throws RuntimeException {
     }
 
     @Override
@@ -51,6 +57,11 @@ public class MockServiceDiscovery extends AbstractServiceDiscovery {
     @Override
     public Set<String> getServices() {
         return new HashSet<>();
+    }
+
+    @Override
+    public List<ServiceInstance> getInstances(String serviceName) throws NullPointerException {
+        return Collections.emptyList();
     }
 
     @Override

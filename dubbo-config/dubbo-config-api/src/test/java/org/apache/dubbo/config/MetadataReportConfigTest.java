@@ -24,14 +24,14 @@ import org.junit.jupiter.api.Test;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.equalTo;
 
-public class MetadataReportConfigTest {
+class MetadataReportConfigTest {
     @Test
-    public void testFile() {
+    void testFile() {
         MetadataReportConfig metadataReportConfig = new MetadataReportConfig();
         metadataReportConfig.setFile("file");
         assertThat(metadataReportConfig.getFile(), equalTo("file"));
 
-        metadataReportConfig.setAddress("127.0.0.1:2181");
+        metadataReportConfig.setAddress("file://dir-to-file");
         URL url = metadataReportConfig.toUrl();
         assertThat(url.getParameter("file"), equalTo("file"));
 

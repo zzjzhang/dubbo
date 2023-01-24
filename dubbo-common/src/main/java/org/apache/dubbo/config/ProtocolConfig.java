@@ -16,13 +16,20 @@
  */
 package org.apache.dubbo.config;
 
+import org.apache.dubbo.common.utils.CollectionUtils;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.config.support.Parameter;
+import org.apache.dubbo.rpc.model.ApplicationModel;
 
+import java.lang.reflect.Field;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.apache.dubbo.common.constants.CommonConstants.DUBBO_PROTOCOL;
 import static org.apache.dubbo.common.constants.CommonConstants.SSL_ENABLED_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.THREAD_POOL_EXHAUSTED_LISTENERS_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_UNEXPECTED_EXCEPTION;
+import static org.apache.dubbo.common.constants.ProviderConstants.DEFAULT_PREFER_SERIALIZATION;
 
 /**
  * ProtocolConfig
@@ -88,6 +95,12 @@ public class ProtocolConfig extends AbstractConfig {
      */
     private Integer queues;
 
+
+    /**
+     * Thread pool exhausted listeners
+     */
+    private String threadPoolExhaustedListeners;
+
     /**
      * Max acceptable connections
      */
@@ -102,6 +115,18 @@ public class ProtocolConfig extends AbstractConfig {
      * Serialization
      */
     private String serialization;
+
+    /**
+     * If the parameter has a value, the consumer will read the parameter first.
+     * If the Dubbo Sdk you are using contains the serialization type, the serialization method specified by the argument is used.
+     * <p>
+     * When this parameter is null or the serialization type specified by this parameter does not exist in the Dubbo SDK, the serialization type specified by serialization is used.
+     * If the Dubbo SDK if still does not exist, the default type of the Dubbo SDK is used.
+     * For Dubbo SDK >= 3.2, <code>preferSerialization</code> takes precedence over <code>serialization</code>
+     * <p>
+     * The configuration supports multiple, which are separated by commas.Such as:<code>fastjson2,fastjson,hessian2</code>
+     */
+    private String preferSerialization; // default:fastjson2,hessian2
 
     /**
      * Charset
@@ -199,14 +224,34 @@ public class ProtocolConfig extends AbstractConfig {
 
     private Boolean sslEnabled;
 
+    /*
+     * Extra Protocol for this service, using Port Unification Server
+     */
+    private String extProtocol;
+
     public ProtocolConfig() {
+    }
+
+    public ProtocolConfig(ApplicationModel applicationModel) {
+        super(applicationModel);
     }
 
     public ProtocolConfig(String name) {
         setName(name);
     }
 
+    public ProtocolConfig(ApplicationModel applicationModel, String name) {
+        super(applicationModel);
+        setName(name);
+    }
+
     public ProtocolConfig(String name, int port) {
+        setName(name);
+        setPort(port);
+    }
+
+    public ProtocolConfig(ApplicationModel applicationModel, String name, int port) {
+        super(applicationModel);
         setName(name);
         setPort(port);
     }
@@ -217,22 +262,11 @@ public class ProtocolConfig extends AbstractConfig {
         if (name == null) {
             name = DUBBO_PROTOCOL;
         }
-    }
 
-//    @Override
-//    public List<String> getPrefixes() {
-//        List<String> prefixes = new ArrayList<>();
-//        if (StringUtils.hasText(this.getId())) {
-//            // dubbo.protocols.{protocol-id}
-//            prefixes.add(CommonConstants.DUBBO + "." + getPluralTagName(this.getClass()) + "." + this.getId());
-//        } else if (StringUtils.hasText(this.getName()) && !StringUtils.isEquals(this.getId(), this.getName())) {
-//            // dubbo.protocols.{protocol-name}
-//            prefixes.add(CommonConstants.DUBBO + "." + getPluralTagName(this.getClass()) + "." + this.getName());
-//        }
-//        // dubbo.protocol
-//        prefixes.add(getTypePrefix());
-//        return prefixes;
-//    }
+        if (StringUtils.isBlank(preferSerialization)) {
+            preferSerialization = serialization != null ? serialization : DEFAULT_PREFER_SERIALIZATION;
+        }
+    }
 
     @Parameter(excluded = true)
     public String getName() {
@@ -241,7 +275,6 @@ public class ProtocolConfig extends AbstractConfig {
 
     public final void setName(String name) {
         this.name = name;
-        //this.updateIdIfAbsent(name);
     }
 
     @Parameter(excluded = true)
@@ -296,6 +329,15 @@ public class ProtocolConfig extends AbstractConfig {
 
     public void setThreadname(String threadname) {
         this.threadname = threadname;
+    }
+
+    @Parameter(key = THREAD_POOL_EXHAUSTED_LISTENERS_KEY)
+    public String getThreadPoolExhaustedListeners() {
+        return threadPoolExhaustedListeners;
+    }
+
+    public void setThreadPoolExhaustedListeners(String threadPoolExhaustedListeners) {
+        this.threadPoolExhaustedListeners = threadPoolExhaustedListeners;
     }
 
     public Integer getCorethreads() {
@@ -360,6 +402,14 @@ public class ProtocolConfig extends AbstractConfig {
 
     public void setSerialization(String serialization) {
         this.serialization = serialization;
+    }
+
+    public String getPreferSerialization() {
+        return preferSerialization;
+    }
+
+    public void setPreferSerialization(String preferSerialization) {
+        this.preferSerialization = preferSerialization;
     }
 
     public String getCharset() {
@@ -551,45 +601,36 @@ public class ProtocolConfig extends AbstractConfig {
         return StringUtils.isNotEmpty(name);
     }
 
-    @Override
-    public String toString() {
-        final StringBuilder sb = new StringBuilder("ProtocolConfig{");
-        sb.append("name='").append(name).append('\'');
-        sb.append(", host='").append(host).append('\'');
-        sb.append(", port=").append(port);
-        sb.append(", contextpath='").append(contextpath).append('\'');
-        sb.append(", threadpool='").append(threadpool).append('\'');
-        sb.append(", threadname='").append(threadname).append('\'');
-        sb.append(", corethreads=").append(corethreads);
-        sb.append(", threads=").append(threads);
-        sb.append(", iothreads=").append(iothreads);
-        sb.append(", alive=").append(alive);
-        sb.append(", queues=").append(queues);
-        sb.append(", accepts=").append(accepts);
-        sb.append(", codec='").append(codec).append('\'');
-        sb.append(", serialization='").append(serialization).append('\'');
-        sb.append(", charset='").append(charset).append('\'');
-        sb.append(", payload=").append(payload);
-        sb.append(", buffer=").append(buffer);
-        sb.append(", heartbeat=").append(heartbeat);
-        sb.append(", accesslog='").append(accesslog).append('\'');
-        sb.append(", transporter='").append(transporter).append('\'');
-        sb.append(", exchanger='").append(exchanger).append('\'');
-        sb.append(", dispatcher='").append(dispatcher).append('\'');
-        sb.append(", networker='").append(networker).append('\'');
-        sb.append(", server='").append(server).append('\'');
-        sb.append(", client='").append(client).append('\'');
-        sb.append(", telnet='").append(telnet).append('\'');
-        sb.append(", prompt='").append(prompt).append('\'');
-        sb.append(", status='").append(status).append('\'');
-        sb.append(", register=").append(register);
-        sb.append(", keepAlive=").append(keepAlive);
-        sb.append(", optimizer='").append(optimizer).append('\'');
-        sb.append(", extension='").append(extension).append('\'');
-        sb.append(", parameters=").append(parameters);
-        sb.append(", isDefault=").append(isDefault);
-        sb.append(", sslEnabled=").append(sslEnabled);
-        sb.append('}');
-        return sb.toString();
+    public String getExtProtocol() {
+        return extProtocol;
     }
+
+    public void setExtProtocol(String extProtocol) {
+        this.extProtocol = extProtocol;
+    }
+
+    public void mergeProtocol(ProtocolConfig sourceConfig) {
+        if (sourceConfig == null) {
+            return;
+        }
+        Field[] targetFields = this.getClass().getDeclaredFields();
+        try {
+            Map<String, Object> protocolConfigMap = CollectionUtils.objToMap(sourceConfig);
+            for (Field targetField : targetFields) {
+                Optional.ofNullable(protocolConfigMap.get(targetField.getName())).ifPresent(value -> {
+                    try {
+                        targetField.setAccessible(true);
+                        if (targetField.get(this) == null) {
+                            targetField.set(this, value);
+                        }
+                    } catch (IllegalAccessException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
+            }
+        } catch (Exception e) {
+            logger.error(COMMON_UNEXPECTED_EXCEPTION, "", "", "merge protocol config fail, error: ", e);
+        }
+    }
+
 }

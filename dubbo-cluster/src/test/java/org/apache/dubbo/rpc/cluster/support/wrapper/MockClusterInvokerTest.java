@@ -37,11 +37,13 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 import static org.apache.dubbo.common.constants.CommonConstants.PATH_KEY;
 import static org.apache.dubbo.rpc.cluster.Constants.REFER_KEY;
 
-public class MockClusterInvokerTest {
+class MockClusterInvokerTest {
 
     List<Invoker<IHelloService>> invokers = new ArrayList<Invoker<IHelloService>>();
 
@@ -54,7 +56,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerInvoke_normal() {
+    void testMockInvokerInvoke_normal() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName());
         url = url.addParameter(REFER_KEY,
                 URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -84,7 +86,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerInvoke_failmock() {
+    void testMockInvokerInvoke_failmock() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -124,7 +126,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: force-mock
      */
     @Test
-    public void testMockInvokerInvoke_forcemock() {
+    void testMockInvokerInvoke_forcemock() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -157,10 +159,13 @@ public class MockClusterInvokerTest {
         invocation.setMethodName("sayHello");
         ret = cluster.invoke(invocation);
         Assertions.assertNull(ret.getValue());
+
+
+
     }
 
     @Test
-    public void testMockInvokerInvoke_forcemock_defaultreturn() {
+    void testMockInvokerInvoke_forcemock_defaultreturn() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -185,7 +190,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_Fock_someMethods() {
+    void testMockInvokerFromOverride_Invoke_Fock_someMethods() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -221,7 +226,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_Fock_WithOutDefault() {
+    void testMockInvokerFromOverride_Invoke_Fock_WithOutDefault() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -256,7 +261,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_Fock_WithDefault() {
+    void testMockInvokerFromOverride_Invoke_Fock_WithDefault() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -294,7 +299,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_Fock_WithFailDefault() {
+    void testMockInvokerFromOverride_Invoke_Fock_WithFailDefault() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -332,7 +337,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_Fock_WithForceDefault() {
+    void testMockInvokerFromOverride_Invoke_Fock_WithForceDefault() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -370,7 +375,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_Fock_Default() {
+    void testMockInvokerFromOverride_Invoke_Fock_Default() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -400,7 +405,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_checkCompatible_return() {
+    void testMockInvokerFromOverride_Invoke_checkCompatible_return() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -428,7 +433,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_checkCompatible_ImplMock() {
+    void testMockInvokerFromOverride_Invoke_checkCompatible_ImplMock() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -447,7 +452,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_checkCompatible_ImplMock2() {
+    void testMockInvokerFromOverride_Invoke_checkCompatible_ImplMock2() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName() + "&" + "mock=fail"))
@@ -464,7 +469,7 @@ public class MockClusterInvokerTest {
      * Test if mock policy works fine: fail-mock
      */
     @Test
-    public void testMockInvokerFromOverride_Invoke_checkCompatible_ImplMock3() {
+    void testMockInvokerFromOverride_Invoke_checkCompatible_ImplMock3() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName() + "&" + "mock=force"));
@@ -477,7 +482,7 @@ public class MockClusterInvokerTest {
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_String() {
+    void testMockInvokerFromOverride_Invoke_check_String() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter("getSomething.mock", "force:return 1688")
                 .addParameter(REFER_KEY,
@@ -490,11 +495,11 @@ public class MockClusterInvokerTest {
         invocation.setMethodName("getSomething");
         Result ret = cluster.invoke(invocation);
         Assertions.assertTrue(ret.getValue() instanceof String, "result type must be String but was : " + ret.getValue().getClass());
-        Assertions.assertEquals("1688", (String) ret.getValue());
+        Assertions.assertEquals("1688", ret.getValue());
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_int() {
+    void testMockInvokerFromOverride_Invoke_check_int() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -510,7 +515,7 @@ public class MockClusterInvokerTest {
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_boolean() {
+    void testMockInvokerFromOverride_Invoke_check_boolean() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -526,7 +531,7 @@ public class MockClusterInvokerTest {
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_Boolean() {
+    void testMockInvokerFromOverride_Invoke_check_Boolean() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -542,7 +547,7 @@ public class MockClusterInvokerTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_ListString_empty() {
+    void testMockInvokerFromOverride_Invoke_check_ListString_empty() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -558,7 +563,7 @@ public class MockClusterInvokerTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_ListString() {
+    void testMockInvokerFromOverride_Invoke_check_ListString() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -576,7 +581,7 @@ public class MockClusterInvokerTest {
 
     @SuppressWarnings("unchecked")
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_ListPojo_empty() {
+    void testMockInvokerFromOverride_Invoke_check_ListPojo_empty() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -589,10 +594,33 @@ public class MockClusterInvokerTest {
         Result ret = cluster.invoke(invocation);
         Assertions.assertEquals(0, ((List<User>) ret.getValue()).size());
     }
+    @Test
+    void testMockInvokerFromOverride_Invoke_check_ListPojoAsync() throws ExecutionException, InterruptedException {
+        URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
+            .addParameter(REFER_KEY,
+                URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
+                    + "&" + "getUsersAsync.mock=force"))
+            .addParameter("invoke_return_error", "true");
+        Invoker<IHelloService> cluster = getClusterInvoker(url);
+        //Configured with mock
+        RpcInvocation invocation = new RpcInvocation();
+        invocation.setMethodName("getUsersAsync");
+        invocation.setReturnType(CompletableFuture.class);
+        Result ret = cluster.invoke(invocation);
+        CompletableFuture<List<User>> cf = null;
+        try {
+            cf = (CompletableFuture<List<User>>) ret.recreate();
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+        Assertions.assertEquals(2, cf.get().size());
+        Assertions.assertEquals("Tommock", cf.get().get(0).getName());
+    }
+
 
     @SuppressWarnings("unchecked")
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_ListPojo() {
+    void testMockInvokerFromOverride_Invoke_check_ListPojo() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -606,11 +634,11 @@ public class MockClusterInvokerTest {
         List<User> rl = (List<User>) ret.getValue();
         System.out.println(rl);
         Assertions.assertEquals(2, rl.size());
-        Assertions.assertEquals("hi1", ((User) rl.get(0)).getName());
+        Assertions.assertEquals("hi1", rl.get(0).getName());
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_check_ListPojo_error() {
+    void testMockInvokerFromOverride_Invoke_check_ListPojo_error() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -627,7 +655,7 @@ public class MockClusterInvokerTest {
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_force_throw() {
+    void testMockInvokerFromOverride_Invoke_force_throw() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -641,12 +669,12 @@ public class MockClusterInvokerTest {
             cluster.invoke(invocation);
             Assertions.fail();
         } catch (RpcException e) {
-            Assertions.assertFalse(e.isBiz(), "not custem exception");
+            Assertions.assertFalse(e.isBiz(), "not custom exception");
         }
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_force_throwCustemException() throws Throwable {
+    void testMockInvokerFromOverride_Invoke_force_throwCustemException() throws Throwable {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -665,7 +693,7 @@ public class MockClusterInvokerTest {
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_force_throwCustemExceptionNotFound() {
+    void testMockInvokerFromOverride_Invoke_force_throwCustemExceptionNotFound() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -684,7 +712,7 @@ public class MockClusterInvokerTest {
     }
 
     @Test
-    public void testMockInvokerFromOverride_Invoke_mock_false() {
+    void testMockInvokerFromOverride_Invoke_mock_false() {
         URL url = URL.valueOf("remote://1.2.3.4/" + IHelloService.class.getName())
                 .addParameter(REFER_KEY,
                         URL.encode(PATH_KEY + "=" + IHelloService.class.getName()
@@ -753,6 +781,8 @@ public class MockClusterInvokerTest {
 
         List<User> getUsers();
 
+        CompletableFuture<List<User>> getUsersAsync();
+
         void sayHello();
     }
 
@@ -793,6 +823,13 @@ public class MockClusterInvokerTest {
             return Arrays.asList(new User[]{new User(1, "Tom"), new User(2, "Jerry")});
         }
 
+        @Override
+        public CompletableFuture<List<User>> getUsersAsync() {
+            CompletableFuture<List<User>> cf=new CompletableFuture<>();
+            cf.complete(Arrays.asList(new User[]{new User(1, "Tom"), new User(2, "Jerry")}));
+            return cf;
+        }
+
         public void sayHello() {
             System.out.println("hello prety");
         }
@@ -825,6 +862,13 @@ public class MockClusterInvokerTest {
 
         public List<User> getUsers() {
             return Arrays.asList(new User[]{new User(1, "Tommock"), new User(2, "Jerrymock")});
+        }
+
+        @Override
+        public CompletableFuture<List<User>> getUsersAsync() {
+            CompletableFuture<List<User>> cf=new CompletableFuture<>();
+            cf.complete(Arrays.asList(new User[]{new User(1, "Tommock"), new User(2, "Jerrymock")}));
+            return cf;
         }
 
         public int getInt1() {

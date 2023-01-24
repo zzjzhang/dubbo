@@ -23,12 +23,13 @@ import org.apache.dubbo.config.annotation.Method;
 import org.apache.dubbo.config.annotation.Reference;
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.ReferenceBean;
-import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
-import org.apache.dubbo.config.spring.reference.ReferenceBeanManager;
 import org.apache.dubbo.config.spring.api.DemoService;
 import org.apache.dubbo.config.spring.api.HelloService;
+import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
+import org.apache.dubbo.config.spring.reference.ReferenceBeanManager;
 import org.apache.dubbo.config.spring.util.DubboBeanUtils;
 import org.apache.dubbo.rpc.RpcContext;
+
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -50,6 +51,7 @@ import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 
+import java.net.InetSocketAddress;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
@@ -76,7 +78,7 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
         "consumer.url = dubbo://127.0.0.1:12345?version=2.5.7",
 })
 @EnableAspectJAutoProxy(proxyTargetClass = true, exposeProxy = true)
-public class ReferenceAnnotationBeanPostProcessorTest {
+class ReferenceAnnotationBeanPostProcessorTest {
 
     @BeforeAll
     public static void setUp() {
@@ -118,17 +120,25 @@ public class ReferenceAnnotationBeanPostProcessorTest {
     @Autowired
     private DemoService demoServiceImpl;
 
-    // #4 ReferenceBean (Field Injection #2)
+    // #5 ReferenceBean (Field Injection #3)
     @Reference(id = "helloService", methods = @Method(name = "sayHello", timeout = 100))
     private HelloService helloService;
 
-    // #5 ReferenceBean (Field Injection #3)
+    // #6 ReferenceBean (Field Injection #4)
     @DubboReference(version = "2", url = "dubbo://127.0.0.1:12345?version=2", tag = "demo_tag")
     private HelloService helloService2;
 
+    // #7 ReferenceBean (Method Injection #3)
+    @DubboReference(version = "3", url = "dubbo://127.0.0.1:12345?version=2", tag = "demo_tag")
+    public void setHelloService2(HelloService helloService2) {
+        // The helloService2 beanName is the same as above(#6 ReferenceBean (Field Injection #4)), and this will rename to helloService2#2
+        renamedHelloService2 = helloService2;
+    }
+
+    private HelloService renamedHelloService2;
 
     @Test
-    public void testAop() throws Exception {
+    void testAop() throws Exception {
 
         Assertions.assertTrue(context.containsBean("helloService"));
 
@@ -147,8 +157,8 @@ public class ReferenceAnnotationBeanPostProcessorTest {
         Assertions.assertNotNull(context.getBean("demoService"));
         Assertions.assertNotNull(context.getBean("demoServiceFromParent"));
 
-        String callSuffix = AOP_SUFFIX + " from "+ NetUtils.getLocalHost() +":12345";
-        String localCallSuffix = AOP_SUFFIX + " from 127.0.0.1:0";
+        String callSuffix = AOP_SUFFIX + " from "+ InetSocketAddress.createUnresolved(NetUtils.getLocalHost(), 12345);
+        String localCallSuffix = AOP_SUFFIX + " from " + InetSocketAddress.createUnresolved("127.0.0.1", 0);
         String directInvokeSuffix = AOP_SUFFIX + " from null";
 
         String defaultHelloServiceResult = "Greeting, Mercy";
@@ -172,7 +182,7 @@ public class ReferenceAnnotationBeanPostProcessorTest {
     }
 
     @Test
-    public void testGetInjectedFieldReferenceBeanMap() {
+    void testGetInjectedFieldReferenceBeanMap() {
 
         ReferenceAnnotationBeanPostProcessor beanPostProcessor = getReferenceAnnotationBeanPostProcessor();
 
@@ -192,11 +202,11 @@ public class ReferenceAnnotationBeanPostProcessorTest {
             String member = injectedElement.getMember().toString();
             Integer count = checkingFieldNames.get(member);
             Assertions.assertNotNull(count);
-            checkingFieldNames.put(member, count+1);
+            checkingFieldNames.put(member, count + 1);
         }
 
         for (Map.Entry<String, Integer> entry : checkingFieldNames.entrySet()) {
-            Assertions.assertEquals(1, entry.getValue().intValue(), "check field element failed: "+entry.getKey());
+            Assertions.assertEquals(1, entry.getValue().intValue(), "check field element failed: " + entry.getKey());
         }
     }
 
@@ -205,18 +215,19 @@ public class ReferenceAnnotationBeanPostProcessorTest {
     }
 
     @Test
-    public void testGetInjectedMethodReferenceBeanMap() {
+    void testGetInjectedMethodReferenceBeanMap() {
 
         ReferenceAnnotationBeanPostProcessor beanPostProcessor = getReferenceAnnotationBeanPostProcessor();
 
         Map<InjectionMetadata.InjectedElement, ReferenceBean<?>> referenceBeanMap =
                 beanPostProcessor.getInjectedMethodReferenceBeanMap();
 
-        Assertions.assertEquals(2, referenceBeanMap.size());
+        Assertions.assertEquals(3, referenceBeanMap.size());
 
         Map<String, Integer> checkingMethodNames = new HashMap<>();
         checkingMethodNames.put("setDemoServiceFromAncestor", 0);
         checkingMethodNames.put("setDemoService", 0);
+        checkingMethodNames.put("setHelloService2", 0);
 
         for (Map.Entry<InjectionMetadata.InjectedElement, ReferenceBean<?>> entry : referenceBeanMap.entrySet()) {
 
@@ -225,42 +236,23 @@ public class ReferenceAnnotationBeanPostProcessorTest {
             Integer count = checkingMethodNames.get(method.getName());
             Assertions.assertNotNull(count);
             Assertions.assertEquals(0, count.intValue());
-            checkingMethodNames.put(method.getName(), count+1);
+            checkingMethodNames.put(method.getName(), count + 1);
         }
 
         for (Map.Entry<String, Integer> entry : checkingMethodNames.entrySet()) {
-            Assertions.assertEquals(1, entry.getValue().intValue(), "check method element failed: "+entry.getKey());
+            Assertions.assertEquals(1, entry.getValue().intValue(), "check method element failed: " + entry.getKey());
         }
     }
 
-
-    //    @Test
-    //    public void testModuleInfo() {
-    //
-    //        ReferenceAnnotationBeanPostProcessor beanPostProcessor = context.getBean(BEAN_NAME,
-    //                ReferenceAnnotationBeanPostProcessor.class);
-    //
-    //
-    //        Map<InjectionMetadata.InjectedElement, ReferenceBean<?>> referenceBeanMap =
-    //                beanPostProcessor.getInjectedMethodReferenceBeanMap();
-    //
-    //        for (Map.Entry<InjectionMetadata.InjectedElement, ReferenceBean<?>> entry : referenceBeanMap.entrySet()) {
-    //            ReferenceBean<?> referenceBean = entry.getValue();
-    //
-    //            assertThat(referenceBean.getModule().getName(), is("defaultModule"));
-    //            assertThat(referenceBean.getMonitor(), not(nullValue()));
-    //        }
-    //    }
-
     @Test
-    public void testReferenceBeansMethodAnnotation() {
+    void testReferenceBeansMethodAnnotation() {
 
         ReferenceBeanManager referenceBeanManager = context.getBean(ReferenceBeanManager.BEAN_NAME,
                 ReferenceBeanManager.class);
 
         Collection<ReferenceBean> referenceBeans = referenceBeanManager.getReferences();
 
-        Assertions.assertEquals(3, referenceBeans.size());
+        Assertions.assertEquals(4, referenceBeans.size());
 
         for (ReferenceBean referenceBean : referenceBeans) {
             ReferenceConfig referenceConfig = referenceBean.getReferenceConfig();
@@ -285,6 +277,7 @@ public class ReferenceAnnotationBeanPostProcessorTest {
         Assertions.assertEquals("demo_tag", helloService2Bean.getReferenceConfig().getTag());
 
         Assertions.assertNotNull(referenceBeanManager.getById("myDemoService"));
+        Assertions.assertNotNull(referenceBeanManager.getById("helloService2#2"));
 
     }
 
@@ -299,7 +292,7 @@ public class ReferenceAnnotationBeanPostProcessorTest {
             return demoServiceFromAncestor;
         }
 
-        // #1 ReferenceBean (Method Injection #1)
+        // #4 ReferenceBean (Method Injection #2)
         @Reference(id = "myDemoService", version = "2.5.7", url = "dubbo://127.0.0.1:12345?version=2.5.7")
         public void setDemoServiceFromAncestor(DemoService demoServiceFromAncestor) {
             this.demoServiceFromAncestor = demoServiceFromAncestor;
@@ -313,7 +306,7 @@ public class ReferenceAnnotationBeanPostProcessorTest {
 
     private static class ParentBean extends AncestorBean {
 
-        // #2 ReferenceBean (Field Injection #1)
+        // #2 ReferenceBean (Field Injection #2)
         @Reference(version = "${consumer.version}", url = "${consumer.url}")
         private DemoService demoServiceFromParent;
 
@@ -337,7 +330,7 @@ public class ReferenceAnnotationBeanPostProcessorTest {
             return demoService;
         }
 
-        // #3 ReferenceBean (Method Injection #2)
+        // #3 ReferenceBean (Method Injection #1)
         @Reference(version = "2.5.7", url = "dubbo://127.0.0.1:12345?version=2.5.7")
         public void setDemoService(DemoService demoService) {
             this.demoService = demoService;
@@ -347,6 +340,7 @@ public class ReferenceAnnotationBeanPostProcessorTest {
     @Configuration
     static class MyConfiguration {
 
+        // #1 ReferenceBean (Field Injection #1)
         @Reference(methods = @Method(name = "sayHello", timeout = 100))
         private HelloService helloService;
 

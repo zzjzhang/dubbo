@@ -32,10 +32,10 @@ import static org.apache.dubbo.common.utils.MethodUtils.getMethods;
 import static org.apache.dubbo.common.utils.MethodUtils.invokeMethod;
 import static org.apache.dubbo.common.utils.MethodUtils.overrides;
 
-public class MethodUtilsTest {
+class MethodUtilsTest {
 
     @Test
-    public void testGetMethod() {
+    void testGetMethod() {
         Method getMethod = null;
         for (Method method : MethodTestClazz.class.getMethods()) {
             if (MethodUtils.isGetter(method)) {
@@ -47,7 +47,7 @@ public class MethodUtilsTest {
     }
 
     @Test
-    public void testSetMethod() {
+    void testSetMethod() {
         Method setMethod = null;
         for (Method method : MethodTestClazz.class.getMethods()) {
             if (MethodUtils.isSetter(method)) {
@@ -59,13 +59,13 @@ public class MethodUtilsTest {
     }
 
     @Test
-    public void testIsDeprecated() throws Exception {
+    void testIsDeprecated() throws Exception {
         Assertions.assertTrue(MethodUtils.isDeprecated(MethodTestClazz.class.getMethod("deprecatedMethod")));
         Assertions.assertFalse(MethodUtils.isDeprecated(MethodTestClazz.class.getMethod("getValue")));
     }
 
     @Test
-    public void testIsMetaMethod() {
+    void testIsMetaMethod() {
         boolean containMetaMethod = false;
         for (Method method : MethodTestClazz.class.getMethods()) {
             if (MethodUtils.isMetaMethod(method)) {
@@ -76,7 +76,7 @@ public class MethodUtilsTest {
     }
 
     @Test
-    public void testGetMethods() throws NoSuchMethodException {
+    void testGetMethods() throws NoSuchMethodException {
         Assertions.assertTrue(getDeclaredMethods(MethodTestClazz.class, excludedDeclaredClass(String.class)).size() > 0);
         Assertions.assertTrue(getMethods(MethodTestClazz.class).size() > 0);
         Assertions.assertTrue(getAllDeclaredMethods(MethodTestClazz.class).size() > 0);
@@ -93,6 +93,52 @@ public class MethodUtilsTest {
                 MethodTestClazz.class.getMethod("get"));
         Assertions.assertEquals(findOverriddenMethod(MethodOverrideClazz.class.getMethod("get"), MethodOverrideClazz.class),
                 MethodTestClazz.class.getMethod("get"));
+
+    }
+
+    @Test
+    void testExtractFieldName() throws Exception {
+        Method m1 = MethodFieldTestClazz.class.getMethod("is");
+        Method m2 = MethodFieldTestClazz.class.getMethod("get");
+        Method m3 = MethodFieldTestClazz.class.getMethod("getClass");
+        Method m4 = MethodFieldTestClazz.class.getMethod("getObject");
+        Method m5 = MethodFieldTestClazz.class.getMethod("getFieldName1");
+        Method m6 = MethodFieldTestClazz.class.getMethod("setFieldName2");
+        Method m7 = MethodFieldTestClazz.class.getMethod("isFieldName3");
+
+        Assertions.assertEquals("", MethodUtils.extractFieldName(m1));
+        Assertions.assertEquals("", MethodUtils.extractFieldName(m2));
+        Assertions.assertEquals("", MethodUtils.extractFieldName(m3));
+        Assertions.assertEquals("", MethodUtils.extractFieldName(m4));
+        Assertions.assertEquals("fieldName1", MethodUtils.extractFieldName(m5));
+        Assertions.assertEquals("fieldName2", MethodUtils.extractFieldName(m6));
+        Assertions.assertEquals("fieldName3", MethodUtils.extractFieldName(m7));
+    }
+
+    public class MethodFieldTestClazz {
+        public String is() {
+            return "";
+        }
+
+        public String get() {
+            return "";
+        }
+
+        public String getObject() {
+            return "";
+        }
+
+        public String getFieldName1() {
+            return "";
+        }
+
+        public String setFieldName2() {
+            return "";
+        }
+
+        public String isFieldName3() {
+            return "";
+        }
 
     }
 

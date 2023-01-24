@@ -19,9 +19,10 @@ package org.apache.dubbo.test.spring;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
-import org.apache.dubbo.test.common.ZooKeeperServer;
 import org.apache.dubbo.test.common.api.DemoService;
-import org.apache.dubbo.test.spring.context.MockSpringInitializationCustomizer;
+import org.apache.dubbo.test.spring.context.MockSpringInitCustomizer;
+
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -31,9 +32,14 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 
 public class SpringAnnotationBeanTest {
+
     @BeforeAll
     public static void beforeAll() {
-        ZooKeeperServer.start();
+        DubboBootstrap.reset();
+    }
+
+    @AfterAll
+    public static void afterAll(){
         DubboBootstrap.reset();
     }
 
@@ -44,7 +50,7 @@ public class SpringAnnotationBeanTest {
         testService.test();
 
         // check initialization customizer
-        MockSpringInitializationCustomizer.checkCustomizer(applicationContext);
+        MockSpringInitCustomizer.checkCustomizer(applicationContext);
     }
 
     @EnableDubbo(scanBasePackages = "org.apache.dubbo.test.common.impl")

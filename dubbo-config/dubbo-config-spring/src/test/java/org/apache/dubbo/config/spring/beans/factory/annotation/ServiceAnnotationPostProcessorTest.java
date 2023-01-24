@@ -21,6 +21,7 @@ import org.apache.dubbo.config.spring.ServiceBean;
 import org.apache.dubbo.config.spring.api.HelloService;
 import org.apache.dubbo.config.spring.context.annotation.DubboComponentScan;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,7 +55,7 @@ import static org.springframework.test.annotation.DirtiesContext.ClassMode.AFTER
         "provider.package = org.apache.dubbo.config.spring.context.annotation.provider",
 })
 @EnableDubbo(scanBasePackages = "${provider.package}")
-public class ServiceAnnotationPostProcessorTest {
+class ServiceAnnotationPostProcessorTest {
 
     @BeforeAll
     public static void setUp() {
@@ -70,7 +71,7 @@ public class ServiceAnnotationPostProcessorTest {
     private ConfigurableListableBeanFactory beanFactory;
 
     @Test
-    public void test() {
+    void test() {
 
         Map<String, HelloService> helloServicesMap = beanFactory.getBeansOfType(HelloService.class);
 
@@ -88,13 +89,13 @@ public class ServiceAnnotationPostProcessorTest {
     }
 
     @Test
-    public void testMethodAnnotation() {
+    void testMethodAnnotation() {
 
         Map<String, ServiceBean> serviceBeansMap = beanFactory.getBeansOfType(ServiceBean.class);
 
         Assertions.assertEquals(3, serviceBeansMap.size());
 
-        ServiceBean demoServiceBean = serviceBeansMap.get("ServiceBean:org.apache.dubbo.config.spring.api.DemoService:2.5.7");
+        ServiceBean demoServiceBean = serviceBeansMap.get("ServiceBean:org.apache.dubbo.config.spring.api.DemoService:2.5.7:");
 
         Assertions.assertNotNull(demoServiceBean.getMethods());
 

@@ -16,9 +16,16 @@
  */
 package org.apache.dubbo.registry.client.metadata;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
+
 import org.apache.dubbo.common.URL;
+import org.apache.dubbo.common.config.ConfigurationUtils;
 import org.apache.dubbo.common.config.configcenter.ConfigItem;
-import org.apache.dubbo.common.logger.Logger;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
 import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.common.utils.CollectionUtils;
 import org.apache.dubbo.common.utils.StringUtils;
@@ -29,66 +36,96 @@ import org.apache.dubbo.metadata.report.MetadataReport;
 import org.apache.dubbo.metadata.report.MetadataReportInstance;
 import org.apache.dubbo.registry.client.RegistryClusterIdentifier;
 import org.apache.dubbo.rpc.model.ApplicationModel;
-import org.apache.dubbo.rpc.model.ScopeModelAware;
-
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
 
 import static org.apache.dubbo.common.constants.CommonConstants.COMMA_SEPARATOR;
 import static org.apache.dubbo.common.constants.CommonConstants.DEFAULT_KEY;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.INTERNAL_ERROR;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.REGISTRY_ADDRESS_INVALID;
+import static org.apache.dubbo.registry.Constants.CAS_RETRY_TIMES_KEY;
+import static org.apache.dubbo.registry.Constants.CAS_RETRY_WAIT_TIME_KEY;
+import static org.apache.dubbo.registry.Constants.DEFAULT_CAS_RETRY_TIMES;
+import static org.apache.dubbo.registry.Constants.DEFAULT_CAS_RETRY_WAIT_TIME;
 
-public class MetadataServiceNameMapping extends AbstractServiceNameMapping implements ScopeModelAware {
+public class MetadataServiceNameMapping extends AbstractServiceNameMapping {
 
-    private final Logger logger = LoggerFactory.getLogger(getClass());
+    private final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(getClass());
 
     private static final List<String> IGNORED_SERVICE_INTERFACES = Collections.singletonList(MetadataService.class.getName());
 
-    private static final int CAS_RETRY_TIMES = 6;
+    private final int casRetryTimes;
+    private final int casRetryWaitTime;
     protected MetadataReportInstance metadataReportInstance;
 
-    public MetadataServiceNameMapping() {
-        metadataReportInstance = ApplicationModel.defaultModel().getBeanFactory().getBean(MetadataReportInstance.class);
+    public MetadataServiceNameMapping(ApplicationModel applicationModel) {
+        super(applicationModel);
+        metadataReportInstance = applicationModel.getBeanFactory().getBean(MetadataReportInstance.class);
+        casRetryTimes = ConfigurationUtils.getGlobalConfiguration(applicationModel).getInt(CAS_RETRY_TIMES_KEY, DEFAULT_CAS_RETRY_TIMES);
+        casRetryWaitTime = ConfigurationUtils.getGlobalConfiguration(applicationModel).getInt(CAS_RETRY_WAIT_TIME_KEY, DEFAULT_CAS_RETRY_WAIT_TIME);
     }
 
+    /**
+     * Simply register to all metadata center
+     */
     @Override
     public boolean map(URL url) {
-            if (CollectionUtils.isEmpty(applicationModel.getApplicationConfigManager().getMetadataConfigs())) {
-                return false;
-            }
-            String serviceInterface = url.getServiceInterface();
-            if (IGNORED_SERVICE_INTERFACES.contains(serviceInterface)) {
-                return false;
-            }
-            String registryCluster = getRegistryCluster(url);
-            MetadataReport metadataReport = metadataReportInstance.getMetadataReport(registryCluster);
-
-            String appName = applicationModel.getApplicationName();
-            if (metadataReport.registerServiceAppMapping(serviceInterface, appName, url)) {
-                // MetadataReport support directly register service-app mapping
-                return true;
-            }
-
-            int currentRetryTimes = 1;
-            boolean succeeded = false;
-            String newConfigContent = appName;
-            do {
-                ConfigItem configItem = metadataReport.getConfigItem(serviceInterface, DEFAULT_MAPPING_GROUP);
-                String oldConfigContent = configItem.getContent();
-                if (StringUtils.isNotEmpty(oldConfigContent)) {
-                    boolean contains = StringUtils.isContains(oldConfigContent, appName);
-                    if (contains) {
-                        break;
-                    }
-                    newConfigContent = oldConfigContent + COMMA_SEPARATOR + appName;
-                }
-                succeeded = metadataReport.registerServiceAppMapping(serviceInterface, DEFAULT_MAPPING_GROUP, newConfigContent, configItem.getTicket());
-            } while (!succeeded && currentRetryTimes++ <= CAS_RETRY_TIMES);
-            if (!succeeded) {
-            throw new RuntimeException();
+        if (CollectionUtils.isEmpty(applicationModel.getApplicationConfigManager().getMetadataConfigs())) {
+            logger.warn(REGISTRY_ADDRESS_INVALID, "", "", "No valid metadata config center found for mapping report.");
+            return false;
+        }
+        String serviceInterface = url.getServiceInterface();
+        if (IGNORED_SERVICE_INTERFACES.contains(serviceInterface)) {
+            return true;
         }
 
-        return true;
+        boolean result = true;
+        for (Map.Entry<String, MetadataReport> entry : metadataReportInstance.getMetadataReports(true).entrySet()) {
+            MetadataReport metadataReport = entry.getValue();
+            String appName = applicationModel.getApplicationName();
+            try {
+                if (metadataReport.registerServiceAppMapping(serviceInterface, appName, url)) {
+                    // MetadataReport support directly register service-app mapping
+                    continue;
+                }
+
+                boolean succeeded;
+                int currentRetryTimes = 1;
+                String newConfigContent = appName;
+                do {
+                    ConfigItem configItem = metadataReport.getConfigItem(serviceInterface, DEFAULT_MAPPING_GROUP);
+                    String oldConfigContent = configItem.getContent();
+                    if (StringUtils.isNotEmpty(oldConfigContent)) {
+                        boolean contains = StringUtils.isContains(oldConfigContent, appName);
+                        if (contains) {
+                            // From the user's perspective, it means successful when the oldConfigContent has contained the current appName. So we should not throw an Exception to user, it will confuse the user.
+                            succeeded = true;
+                            break;
+                        }
+                        newConfigContent = oldConfigContent + COMMA_SEPARATOR + appName;
+                    }
+                    succeeded = metadataReport.registerServiceAppMapping(serviceInterface, DEFAULT_MAPPING_GROUP, newConfigContent, configItem.getTicket());
+                    if (!succeeded) {
+                        int waitTime = ThreadLocalRandom.current().nextInt(casRetryWaitTime);
+                        logger.info("Failed to publish service name mapping to metadata center by cas operation. " +
+                            "Times: " + currentRetryTimes + ". " +
+                            "Next retry delay: " + waitTime + ". " +
+                            "Service Interface: " + serviceInterface + ". " +
+                            "Origin Content: " + oldConfigContent + ". " +
+                            "Ticket: " + configItem.getTicket() + ". " +
+                            "Excepted context: " + newConfigContent);
+                        Thread.sleep(waitTime);
+                    }
+                } while (!succeeded && currentRetryTimes++ <= casRetryTimes);
+
+                if (!succeeded) {
+                    result = false;
+                }
+            } catch (Exception e) {
+                result = false;
+                logger.warn(INTERNAL_ERROR, "unknown error in registry module", "", "Failed registering mapping to remote." + metadataReport, e);
+            }
+        }
+
+        return result;
     }
 
     @Override
@@ -96,21 +133,34 @@ public class MetadataServiceNameMapping extends AbstractServiceNameMapping imple
         String serviceInterface = url.getServiceInterface();
         String registryCluster = getRegistryCluster(url);
         MetadataReport metadataReport = metadataReportInstance.getMetadataReport(registryCluster);
+        if (metadataReport == null) {
+            return Collections.emptySet();
+        }
         return metadataReport.getServiceAppMapping(serviceInterface, url);
     }
 
     @Override
     public Set<String> getAndListen(URL url, MappingListener mappingListener) {
         String serviceInterface = url.getServiceInterface();
+        // randomly pick one metadata report is ok for it's guaranteed all metadata report will have the same mapping data.
         String registryCluster = getRegistryCluster(url);
         MetadataReport metadataReport = metadataReportInstance.getMetadataReport(registryCluster);
+        if (metadataReport == null) {
+            return Collections.emptySet();
+        }
         return metadataReport.getServiceAppMapping(serviceInterface, mappingListener, url);
     }
 
     @Override
-    public void setApplicationModel(ApplicationModel applicationModel) {
-        super.setApplicationModel(applicationModel);
-        metadataReportInstance = applicationModel.getBeanFactory().getBean(MetadataReportInstance.class);
+    protected void removeListener(URL url, MappingListener mappingListener) {
+        String serviceInterface = url.getServiceInterface();
+        // randomly pick one metadata report is ok for it's guaranteed each metadata report will have the same mapping content.
+        String registryCluster = getRegistryCluster(url);
+        MetadataReport metadataReport = metadataReportInstance.getMetadataReport(registryCluster);
+        if (metadataReport == null) {
+            return;
+        }
+        metadataReport.removeServiceAppMappingListener(serviceInterface, mappingListener);
     }
 
     protected String getRegistryCluster(URL url) {

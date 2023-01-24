@@ -18,12 +18,15 @@ package org.apache.dubbo.rpc.cluster.governance;
 
 import org.apache.dubbo.common.config.configcenter.ConfigurationListener;
 import org.apache.dubbo.common.config.configcenter.DynamicConfiguration;
-import org.apache.dubbo.rpc.model.ApplicationModel;
-import org.apache.dubbo.rpc.model.ScopeModelAware;
+import org.apache.dubbo.rpc.model.ModuleModel;
 
-public class DefaultGovernanceRuleRepositoryImpl implements GovernanceRuleRepository, ScopeModelAware {
+public class DefaultGovernanceRuleRepositoryImpl implements GovernanceRuleRepository {
 
-    private ApplicationModel applicationModel;
+    private ModuleModel moduleModel;
+
+    public DefaultGovernanceRuleRepositoryImpl(ModuleModel moduleModel) {
+        this.moduleModel = moduleModel;
+    }
 
     @Override
     public void addListener(String key, String group, ConfigurationListener listener) {
@@ -50,13 +53,8 @@ public class DefaultGovernanceRuleRepositoryImpl implements GovernanceRuleReposi
         return null;
     }
 
-    @Override
-    public void setApplicationModel(ApplicationModel applicationModel) {
-        this.applicationModel = applicationModel;
-    }
-
     private DynamicConfiguration getDynamicConfiguration() {
-        return ApplicationModel.ofNullable(applicationModel).getApplicationEnvironment().getDynamicConfiguration().orElse(null);
+        return moduleModel.getModelEnvironment().getDynamicConfiguration().orElse(null);
     }
 
 }

@@ -58,14 +58,12 @@ public class Request {
         if (data == null) {
             return null;
         }
-        String dataStr;
+
         try {
-            dataStr = data.toString();
+            return data.toString();
         } catch (Throwable e) {
-            dataStr = "<Fail toString of " + data.getClass() + ", cause: " +
-                    StringUtils.toString(e) + ">";
+            return "<Fail toString of " + data.getClass() + ", cause: " + StringUtils.toString(e) + ">";
         }
-        return dataStr;
     }
 
     public long getId() {
@@ -137,9 +135,18 @@ public class Request {
         return copy;
     }
 
+    public Request copyWithoutData() {
+        Request copy = new Request(mId);
+        copy.mVersion = this.mVersion;
+        copy.mTwoWay = this.mTwoWay;
+        copy.mEvent = this.mEvent;
+        copy.mBroken = this.mBroken;
+        return copy;
+    }
+
     @Override
     public String toString() {
-        return "Request [id=" + mId + ", version=" + mVersion + ", twoway=" + mTwoWay + ", event=" + mEvent
-                + ", broken=" + mBroken + ", data=" + (mData == this ? "this" : safeToString(mData)) + "]";
+        return "Request [id=" + mId + ", version=" + mVersion + ", twoWay=" + mTwoWay + ", event=" + mEvent
+            + ", broken=" + mBroken + ", data=" + (mData == this ? "this" : safeToString(mData)) + "]";
     }
 }

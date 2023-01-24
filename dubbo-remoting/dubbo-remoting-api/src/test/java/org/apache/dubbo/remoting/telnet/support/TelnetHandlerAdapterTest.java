@@ -20,6 +20,8 @@ import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.remoting.Channel;
 import org.apache.dubbo.remoting.RemotingException;
+import org.apache.dubbo.rpc.model.FrameworkModel;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -30,14 +32,14 @@ import java.util.Map;
 class TelnetHandlerAdapterTest {
 
     @Test
-    public void testTelnet() throws RemotingException {
+    void testTelnet() throws RemotingException {
 
         Channel channel = Mockito.mock(Channel.class);
         Map<String, String> param = new HashMap<>();
         param.put("telnet", "status");
         URL url = new URL("p1", "127.0.0.1", 12345, "path1", param);
         Mockito.when(channel.getUrl()).thenReturn(url);
-        TelnetHandlerAdapter telnetHandlerAdapter = new TelnetHandlerAdapter();
+        TelnetHandlerAdapter telnetHandlerAdapter = new TelnetHandlerAdapter(FrameworkModel.defaultModel());
 
         String message = "--no-prompt status ";
         String expectedResult = "OK\r\n";
@@ -52,7 +54,7 @@ class TelnetHandlerAdapterTest {
         Assertions.assertEquals(expectedResult, telnetHandlerAdapter.telnet(channel, message));
 
         message = "--no-prompt help";
-        expectedResult = "Command: help disabled\r\n";
+        expectedResult = "Command: help disabled for security reasons, please enable support by listing the commands through 'telnet'\r\n";
         Assertions.assertEquals(expectedResult, telnetHandlerAdapter.telnet(channel, message));
 
         message = "--no-prompt";
@@ -60,7 +62,7 @@ class TelnetHandlerAdapterTest {
         Assertions.assertEquals(expectedResult, telnetHandlerAdapter.telnet(channel, message));
 
         message = "help";
-        expectedResult = "Command: help disabled\r\ndubbo>";
+        expectedResult = "Command: help disabled for security reasons, please enable support by listing the commands through 'telnet'\r\ndubbo>";
         Assertions.assertEquals(expectedResult, telnetHandlerAdapter.telnet(channel, message));
     }
 }

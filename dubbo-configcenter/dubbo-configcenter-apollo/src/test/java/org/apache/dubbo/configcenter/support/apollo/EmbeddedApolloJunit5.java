@@ -17,6 +17,10 @@
 
 package org.apache.dubbo.configcenter.support.apollo;
 
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
+import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.JsonUtils;
+
 import com.ctrip.framework.apollo.build.ApolloInjector;
 import com.ctrip.framework.apollo.core.dto.ApolloConfig;
 import com.ctrip.framework.apollo.core.dto.ApolloConfigNotification;
@@ -24,8 +28,6 @@ import com.ctrip.framework.apollo.core.utils.ResourceUtils;
 import com.ctrip.framework.apollo.internals.ConfigServiceLocator;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -33,26 +35,22 @@ import okhttp3.mockwebserver.RecordedRequest;
 import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Method;
-import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.CONFIG_FAILED_CLOSE_CONNECT_APOLLO;
+
 public class EmbeddedApolloJunit5 implements BeforeAllCallback, AfterAllCallback {
-    private static final Logger logger = LoggerFactory.getLogger(EmbeddedApolloJunit5.class);
-    private static final Type notificationType = new TypeToken<List<ApolloConfigNotification>>() {
-    }.getType();
+    private static final ErrorTypeAwareLogger logger = LoggerFactory.getErrorTypeAwareLogger(EmbeddedApolloJunit5.class);
 
     private static Method CONFIG_SERVICE_LOCATOR_CLEAR;
     private static ConfigServiceLocator CONFIG_SERVICE_LOCATOR;
 
-    private static final Gson GSON = new Gson();
     private final Map<String, Map<String, String>> addedOrModifiedPropertiesOfNamespace = Maps.newConcurrentMap();
     private final Map<String, Set<String>> deletedKeysOfNamespace = Maps.newConcurrentMap();
 
@@ -90,17 +88,17 @@ public class EmbeddedApolloJunit5 implements BeforeAllCallback, AfterAllCallback
 
         Map<String, String> mergedConfigurations = mergeOverriddenProperties(namespace, configurations);
         apolloConfig.setConfigurations(mergedConfigurations);
-        return GSON.toJson(apolloConfig);
+        return JsonUtils.getJson().toJson(apolloConfig);
     }
 
     private String mockLongPollBody(String notificationsStr) {
-        List<ApolloConfigNotification> oldNotifications = GSON.fromJson(notificationsStr, notificationType);
+        List<ApolloConfigNotification> oldNotifications = JsonUtils.getJson().toJavaList(notificationsStr, ApolloConfigNotification.class);
         List<ApolloConfigNotification> newNotifications = new ArrayList<>();
         for (ApolloConfigNotification notification : oldNotifications) {
             newNotifications
-                    .add(new ApolloConfigNotification(notification.getNamespaceName(), notification.getNotificationId() + 1));
+                .add(new ApolloConfigNotification(notification.getNamespaceName(), notification.getNotificationId() + 1));
         }
-        return GSON.toJson(newNotifications);
+        return JsonUtils.getJson().toJson(newNotifications);
     }
 
     /**
@@ -158,7 +156,7 @@ public class EmbeddedApolloJunit5 implements BeforeAllCallback, AfterAllCallback
             clear();
             server.close();
         } catch (Exception e) {
-            logger.error("stop apollo server error", e);
+            logger.error(CONFIG_FAILED_CLOSE_CONNECT_APOLLO, "", "", "stop apollo server error", e);
         }
     }
 

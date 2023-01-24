@@ -18,6 +18,7 @@ package org.apache.dubbo.config.annotation;
 
 
 import org.apache.dubbo.common.constants.ClusterRules;
+import org.apache.dubbo.common.constants.LoadbalanceRules;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;
@@ -95,7 +96,7 @@ public @interface DubboService {
     boolean export() default true;
 
     /**
-     * Service token, default value is false
+     * Service token, default value is empty string
      */
     String token() default "";
 
@@ -110,12 +111,12 @@ public @interface DubboService {
     boolean dynamic() default true;
 
     /**
-     * Access log for the service, default value is ""
+     * Access log for the service, default value is empty string
      */
     String accesslog() default "";
 
     /**
-     * Maximum concurrent executes for the service, default value is 0 - no limits
+     * Maximum concurrent executes for the service, default value is -1 - no limits
      */
     int executes() default -1;
 
@@ -125,17 +126,17 @@ public @interface DubboService {
     boolean register() default true;
 
     /**
-     * Service weight value, default value is 0
+     * Service weight value, default value is -1
      */
     int weight() default -1;
 
     /**
-     * Service doc, default value is ""
+     * Service doc, default value is empty string
      */
     String document() default "";
 
     /**
-     * Delay time for service registration, default value is 0
+     * Delay time for service registration, default value is -1
      */
     int delay() default -1;
 
@@ -162,7 +163,7 @@ public @interface DubboService {
     String proxy() default "";
 
     /**
-     * Maximum connections service provider can accept, default value is 0 - connection is shared
+     * Maximum connections service provider can accept, default value is -1 - connection is shared
      */
     int connections() default -1;
 
@@ -205,7 +206,7 @@ public @interface DubboService {
      *
      * you can use {@link org.apache.dubbo.common.constants.LoadbalanceRules#RANDOM} ……
      */
-    String loadbalance() default ClusterRules.EMPTY;
+    String loadbalance() default LoadbalanceRules.EMPTY;
 
     /**
      * Whether to enable async invocation, default value is false
@@ -213,7 +214,7 @@ public @interface DubboService {
     boolean async() default false;
 
     /**
-     * Maximum active requests allowed, default value is 0
+     * Maximum active requests allowed, default value is -1
      */
     int actives() default -1;
 
@@ -233,7 +234,7 @@ public @interface DubboService {
     String validation() default "";
 
     /**
-     * Timeout value for service invocation, default value is 0
+     * Timeout value for service invocation, default value is -1
      */
     int timeout() default -1;
 
@@ -263,7 +264,7 @@ public @interface DubboService {
 
     /**
      * Application spring bean name
-     * @deprecated Do not set it and use the global Application Config
+     * @deprecated This attribute was deprecated, use bind application/module of spring ApplicationContext
      */
     @Deprecated
     String application() default "";
@@ -316,4 +317,10 @@ public @interface DubboService {
      * Weather the service is export asynchronously
      */
     boolean exportAsync() default false;
+
+    /**
+     * bean name of service executor(thread pool), used for thread pool isolation between services
+     * @return
+     */
+    String executor() default "";
 }

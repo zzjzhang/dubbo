@@ -17,7 +17,7 @@
 package org.apache.dubbo.common.constants;
 
 /**
- *  constant for Loadbalance strategy
+ *  constant for Load-balance strategy
  */
 public interface LoadbalanceRules {
 
@@ -27,7 +27,7 @@ public interface LoadbalanceRules {
     String RANDOM = "random";
 
     /**
-     *  Round robin load balance.
+     * Round-robin load balance.
      **/
     String ROUND_ROBIN = "roundrobin";
 
@@ -45,6 +45,11 @@ public interface LoadbalanceRules {
      *  Filter the number of invokers with the shortest response time of success calls and count the weights and quantities of these invokers.
      **/
     String SHORTEST_RESPONSE = "shortestresponse";
+
+    /**
+     *  adaptive load balance.
+     **/
+    String ADAPTIVE = "adaptive";
 
     String EMPTY = "";
 

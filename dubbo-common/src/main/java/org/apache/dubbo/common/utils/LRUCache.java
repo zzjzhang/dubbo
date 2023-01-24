@@ -21,10 +21,10 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * LRU-2
- * </p>
- * When the data accessed for the first time, add it to history list. If the size of history list reaches max capacity, eliminate the earliest data (first in first out).
- * When the data already exists in the history list, and be accessed for the second time, then it will be put into cache.
+ * A 'least recently used' cache based on LinkedHashMap.
+ *
+ * @param <K> key
+ * @param <V> value
  */
 public class LRUCache<K, V> extends LinkedHashMap<K, V> {
 
@@ -36,9 +36,6 @@ public class LRUCache<K, V> extends LinkedHashMap<K, V> {
     private final Lock lock = new ReentrantLock();
     private volatile int maxCapacity;
 
-    // as history list
-    private PreCache<K, Boolean> preCache;
-
     public LRUCache() {
         this(DEFAULT_MAX_CAPACITY);
     }
@@ -46,7 +43,6 @@ public class LRUCache<K, V> extends LinkedHashMap<K, V> {
     public LRUCache(int maxCapacity) {
         super(16, DEFAULT_LOAD_FACTOR, true);
         this.maxCapacity = maxCapacity;
-        this.preCache = new PreCache<>(maxCapacity);
     }
 
     @Override
@@ -78,15 +74,7 @@ public class LRUCache<K, V> extends LinkedHashMap<K, V> {
     public V put(K key, V value) {
         lock.lock();
         try {
-            if (preCache.containsKey(key)) {
-                // add it to cache
-                preCache.remove(key);
-                return super.put(key, value);
-            } else {
-                // add it to history list
-                preCache.put(key, true);
-                return value;
-            }
+            return super.put(key, value);
         } finally {
             lock.unlock();
         }
@@ -96,7 +84,6 @@ public class LRUCache<K, V> extends LinkedHashMap<K, V> {
     public V remove(Object key) {
         lock.lock();
         try {
-            preCache.remove(key);
             return super.remove(key);
         } finally {
             lock.unlock();
@@ -117,11 +104,18 @@ public class LRUCache<K, V> extends LinkedHashMap<K, V> {
     public void clear() {
         lock.lock();
         try {
-            preCache.clear();
             super.clear();
         } finally {
             lock.unlock();
         }
+    }
+
+    public void lock() {
+        lock.lock();
+    }
+
+    public void releaseLock() {
+        lock.unlock();
     }
 
     public int getMaxCapacity() {
@@ -129,31 +123,7 @@ public class LRUCache<K, V> extends LinkedHashMap<K, V> {
     }
 
     public void setMaxCapacity(int maxCapacity) {
-        preCache.setMaxCapacity(maxCapacity);
         this.maxCapacity = maxCapacity;
-    }
-
-    static class PreCache<K, V> extends LinkedHashMap<K, V> {
-
-        private volatile int maxCapacity;
-
-        public PreCache() {
-            this(DEFAULT_MAX_CAPACITY);
-        }
-
-        public PreCache(int maxCapacity) {
-            super(16, DEFAULT_LOAD_FACTOR, true);
-            this.maxCapacity = maxCapacity;
-        }
-
-        @Override
-        protected boolean removeEldestEntry(java.util.Map.Entry<K, V> eldest) {
-            return size() > maxCapacity;
-        }
-
-        public void setMaxCapacity(int maxCapacity) {
-            this.maxCapacity = maxCapacity;
-        }
     }
 
 }

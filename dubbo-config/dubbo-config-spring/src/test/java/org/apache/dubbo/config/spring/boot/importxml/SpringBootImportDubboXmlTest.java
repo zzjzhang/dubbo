@@ -18,8 +18,7 @@ package org.apache.dubbo.config.spring.boot.importxml;
 
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.api.HelloService;
-import org.apache.dubbo.config.spring.registrycenter.ZookeeperSingleRegistryCenter;
-import org.apache.dubbo.config.spring.registrycenter.RegistryCenter;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -42,28 +41,23 @@ import org.springframework.context.annotation.ImportResource;
 @Configuration
 @ComponentScan
 @ImportResource("classpath:/org/apache/dubbo/config/spring/boot/importxml/consumer/dubbo-consumer.xml")
-public class SpringBootImportDubboXmlTest {
-
-    private static RegistryCenter singleRegistryCenter;
+class SpringBootImportDubboXmlTest {
 
     @BeforeAll
     public static void beforeAll(){
-        singleRegistryCenter = new ZookeeperSingleRegistryCenter();
-        singleRegistryCenter.startup();
         DubboBootstrap.reset();
     }
 
     @AfterAll
     public static void afterAll(){
         DubboBootstrap.reset();
-        singleRegistryCenter.shutdown();
     }
 
     @Autowired
     private HelloService helloService;
 
     @Test
-    public void testConsumer() {
+    void testConsumer() {
         try {
             helloService.sayHello("dubbo");
             Assertions.fail("Should not be called successfully");

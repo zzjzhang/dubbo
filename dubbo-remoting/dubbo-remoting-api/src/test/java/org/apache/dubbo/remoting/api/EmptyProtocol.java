@@ -16,8 +16,10 @@
  */
 package org.apache.dubbo.remoting.api;
 
-import io.netty.channel.ChannelPipeline;
-import io.netty.handler.ssl.SslContext;
+import org.apache.dubbo.common.URL;
+import org.apache.dubbo.remoting.api.pu.ChannelOperator;
+
+import org.apache.dubbo.remoting.api.ssl.ContextOperator;
 
 public class EmptyProtocol implements WireProtocol {
     @Override
@@ -26,12 +28,12 @@ public class EmptyProtocol implements WireProtocol {
     }
 
     @Override
-    public void configServerPipeline(ChannelPipeline pipeline,SslContext sslContext) {
+    public void configServerProtocolHandler(URL url, ChannelOperator operator) {
 
     }
 
     @Override
-    public void configClientPipeline(ChannelPipeline pipeline, SslContext sslContext) {
+    public void configClientPipeline(URL url, ChannelOperator operator, ContextOperator contextOperator) {
 
     }
 

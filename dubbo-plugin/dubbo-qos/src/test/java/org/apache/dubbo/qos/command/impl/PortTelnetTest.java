@@ -17,17 +17,16 @@
 package org.apache.dubbo.qos.command.impl;
 
 import org.apache.dubbo.common.URL;
-import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.common.utils.NetUtils;
 import org.apache.dubbo.qos.command.BaseCommand;
 import org.apache.dubbo.qos.command.CommandContext;
-import org.apache.dubbo.qos.legacy.ProtocolUtils;
 import org.apache.dubbo.qos.legacy.service.DemoService;
 import org.apache.dubbo.remoting.RemotingException;
 import org.apache.dubbo.remoting.exchange.ExchangeClient;
 import org.apache.dubbo.remoting.exchange.Exchangers;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.Protocol;
+import org.apache.dubbo.rpc.model.FrameworkModel;
 import org.apache.dubbo.rpc.protocol.dubbo.DubboProtocol;
 
 import org.junit.jupiter.api.AfterEach;
@@ -40,8 +39,8 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.reset;
 
-public class PortTelnetTest {
-    private static final BaseCommand port = new PortTelnet();
+class PortTelnetTest {
+    private BaseCommand port;
 
     private Invoker<DemoService> mockInvoker;
     private CommandContext mockCommandContext;
@@ -51,17 +50,19 @@ public class PortTelnetTest {
     @SuppressWarnings("unchecked")
     @BeforeEach
     public void before() {
+        FrameworkModel frameworkModel = FrameworkModel.defaultModel();
+        port = new PortTelnet(frameworkModel);
         mockCommandContext = mock(CommandContext.class);
         mockInvoker = mock(Invoker.class);
         given(mockInvoker.getInterface()).willReturn(DemoService.class);
         given(mockInvoker.getUrl()).willReturn(URL.valueOf("dubbo://127.0.0.1:" + availablePort + "/demo"));
 
-        ExtensionLoader.getExtensionLoader(Protocol.class).getExtension(DubboProtocol.NAME).export(mockInvoker);
+        frameworkModel.getExtensionLoader(Protocol.class).getExtension(DubboProtocol.NAME).export(mockInvoker);
     }
 
     @AfterEach
-    public void after() {
-        ProtocolUtils.closeAll();
+    public void afterEach() {
+        FrameworkModel.destroyAll();
         reset(mockInvoker, mockCommandContext);
     }
 
@@ -70,10 +71,10 @@ public class PortTelnetTest {
      * the address converted by NAT. In this case, check port only.
      */
     @Test
-    public void testListClient() throws Exception {
+    void testListClient() throws Exception {
         ExchangeClient client1 = Exchangers.connect("dubbo://127.0.0.1:" + availablePort + "/demo");
         ExchangeClient client2 = Exchangers.connect("dubbo://127.0.0.1:" + availablePort + "/demo");
-        Thread.sleep(5000);
+        Thread.sleep(100);
         String result = port.execute(mockCommandContext, new String[]{"-l", availablePort + ""});
         String client1Addr = client1.getLocalAddress().toString();
         String client2Addr = client2.getLocalAddress().toString();
@@ -85,25 +86,25 @@ public class PortTelnetTest {
     }
 
     @Test
-    public void testListDetail() throws RemotingException {
+    void testListDetail() throws RemotingException {
         String result = port.execute(mockCommandContext, new String[]{"-l"});
         assertEquals("dubbo://127.0.0.1:" + availablePort + "", result);
     }
 
     @Test
-    public void testListAllPort() throws RemotingException {
+    void testListAllPort() throws RemotingException {
         String result = port.execute(mockCommandContext, new String[0]);
         assertEquals("" + availablePort + "", result);
     }
 
     @Test
-    public void testErrorMessage() throws RemotingException {
+    void testErrorMessage() throws RemotingException {
         String result = port.execute(mockCommandContext, new String[]{"a"});
         assertEquals("Illegal port a, must be integer.", result);
     }
 
     @Test
-    public void testNoPort() throws RemotingException {
+    void testNoPort() throws RemotingException {
         String result = port.execute(mockCommandContext, new String[]{"-l", "20880"});
         assertEquals("No such port 20880", result);
     }

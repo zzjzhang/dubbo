@@ -18,7 +18,6 @@ package org.apache.dubbo.common.extension;
 
 import org.apache.dubbo.common.extension.director.FooAppService;
 import org.apache.dubbo.common.extension.director.FooFrameworkService;
-import org.apache.dubbo.common.extension.director.FooModuleProvider;
 import org.apache.dubbo.common.extension.director.FooModuleService;
 import org.apache.dubbo.common.extension.director.impl.TestAppService;
 import org.apache.dubbo.common.extension.director.impl.TestFrameworkService;
@@ -26,32 +25,29 @@ import org.apache.dubbo.common.extension.director.impl.TestModuleService;
 import org.apache.dubbo.rpc.model.ApplicationModel;
 import org.apache.dubbo.rpc.model.FrameworkModel;
 import org.apache.dubbo.rpc.model.ModuleModel;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.Collection;
 
-public class ExtensionDirectorTest {
+class ExtensionDirectorTest {
 
     String testFwSrvName = "testFwSrv";
     String testAppSrvName = "testAppSrv";
     String testMdSrvName = "testMdSrv";
 
-    String testAppProviderName = "testAppProvider";
-    String testModuleProviderName = "testModuleProvider";
-    String testFrameworkProviderName = "testFrameworkProvider";
-
     @Test
-    public void testInheritanceAndScope() {
+    void testInheritanceAndScope() {
 
         // Expecting:
         // 1. SPI extension only be created in ExtensionDirector which matched scope
         // 2. Child ExtensionDirector can get extension instance from parent
         // 3. Parent ExtensionDirector can't get extension instance from child
 
-        ExtensionDirector fwExtensionDirector = new ExtensionDirector(null, ExtensionScope.FRAMEWORK);
-        ExtensionDirector appExtensionDirector = new ExtensionDirector(fwExtensionDirector, ExtensionScope.APPLICATION);
-        ExtensionDirector moduleExtensionDirector = new ExtensionDirector(appExtensionDirector, ExtensionScope.MODULE);
+        ExtensionDirector fwExtensionDirector = new ExtensionDirector(null, ExtensionScope.FRAMEWORK, FrameworkModel.defaultModel());
+        ExtensionDirector appExtensionDirector = new ExtensionDirector(fwExtensionDirector, ExtensionScope.APPLICATION, ApplicationModel.defaultModel());
+        ExtensionDirector moduleExtensionDirector = new ExtensionDirector(appExtensionDirector, ExtensionScope.MODULE, ApplicationModel.defaultModel().getDefaultModule());
 
         // test module extension loader
         FooFrameworkService testFwSrvFromModule = moduleExtensionDirector.getExtension(FooFrameworkService.class, testFwSrvName);
@@ -82,12 +78,12 @@ public class ExtensionDirectorTest {
     }
 
     @Test
-    public void testPostProcessor() {
+    void testPostProcessor() {
 
     }
 
     @Test
-    public void testModelAware() {
+    void testModelAware() {
         // Expecting:
         // 1. Module scope SPI can be injected ModuleModel, ApplicationModel, FrameworkModel
         // 2. Application scope SPI can be injected ApplicationModel, FrameworkModel, but not ModuleModel
@@ -143,17 +139,17 @@ public class ExtensionDirectorTest {
     }
 
     @Test
-    public void testModelDataIsolation() {
-//Model Tree
-//├─frameworkModel1
-//│  ├─applicationModel11
-//│  │  ├─moduleModel111
-//│  │  └─moduleModel112
-//│  └─applicationModel12
-//│     └─moduleModel121
-//└─frameworkModel2
-//   └─applicationModel21
-//      └─moduleModel211
+    void testModelDataIsolation() {
+        //Model Tree
+        //├─frameworkModel1
+        //│  ├─applicationModel11
+        //│  │  ├─moduleModel111
+        //│  │  └─moduleModel112
+        //│  └─applicationModel12
+        //│     └─moduleModel121
+        //└─frameworkModel2
+        //   └─applicationModel21
+        //      └─moduleModel211
 
         FrameworkModel frameworkModel1 = new FrameworkModel();
         ApplicationModel applicationModel11 = new ApplicationModel(frameworkModel1);
@@ -175,7 +171,6 @@ public class ExtensionDirectorTest {
         Assertions.assertFalse(applicationsOfFw1.contains(applicationModel21));
 
         Collection<ModuleModel> modulesOfApp11 = applicationModel11.getModuleModels();
-        Assertions.assertEquals(2, modulesOfApp11.size());
         Assertions.assertTrue(modulesOfApp11.contains(moduleModel111));
         Assertions.assertTrue(modulesOfApp11.contains(moduleModel112));
 
@@ -232,7 +227,7 @@ public class ExtensionDirectorTest {
     }
 
     @Test
-    public void testInjection() {
+    void testInjection() {
 
         // Expect:
         // 1. Framework scope extension can be injected to extensions of Framework/Application/Module scope
@@ -267,5 +262,14 @@ public class ExtensionDirectorTest {
         Assertions.assertNull(frameworkService.getAppProvider());
         Assertions.assertNull(frameworkService.getModuleProvider());
 
+        Assertions.assertFalse(moduleService.isDestroyed());
+        Assertions.assertFalse(appService.isDestroyed());
+        Assertions.assertFalse(frameworkService.isDestroyed());
+
+        // destroy
+        frameworkModel.destroy();
+        Assertions.assertTrue(moduleService.isDestroyed());
+        Assertions.assertTrue(appService.isDestroyed());
+        Assertions.assertTrue(frameworkService.isDestroyed());
     }
 }

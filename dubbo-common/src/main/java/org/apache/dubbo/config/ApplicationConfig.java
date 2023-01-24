@@ -16,14 +16,6 @@
  */
 package org.apache.dubbo.config;
 
-import org.apache.dubbo.common.compiler.support.AdaptiveCompiler;
-import org.apache.dubbo.common.infra.InfraAdapter;
-import org.apache.dubbo.common.logger.Logger;
-import org.apache.dubbo.common.logger.LoggerFactory;
-import org.apache.dubbo.common.utils.CollectionUtils;
-import org.apache.dubbo.common.utils.StringUtils;
-import org.apache.dubbo.config.support.Parameter;
-
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -32,29 +24,50 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.dubbo.common.compiler.support.AdaptiveCompiler;
+import org.apache.dubbo.common.infra.InfraAdapter;
+import org.apache.dubbo.common.logger.ErrorTypeAwareLogger;
+import org.apache.dubbo.common.logger.LoggerFactory;
+import org.apache.dubbo.common.utils.CollectionUtils;
+import org.apache.dubbo.common.utils.StringUtils;
+import org.apache.dubbo.config.support.Parameter;
+import org.apache.dubbo.rpc.model.ApplicationModel;
+
 import static org.apache.dubbo.common.constants.CommonConstants.APPLICATION_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.APPLICATION_PROTOCOL_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.APPLICATION_VERSION_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.DUBBO;
 import static org.apache.dubbo.common.constants.CommonConstants.DUMP_DIRECTORY;
+import static org.apache.dubbo.common.constants.CommonConstants.DUMP_ENABLE;
+import static org.apache.dubbo.common.constants.CommonConstants.EXECUTOR_MANAGEMENT_MODE;
+import static org.apache.dubbo.common.constants.CommonConstants.EXECUTOR_MANAGEMENT_MODE_DEFAULT;
 import static org.apache.dubbo.common.constants.CommonConstants.HOST_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.LIVENESS_PROBE_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.METADATA_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.METADATA_SERVICE_PORT_KEY;
+import static org.apache.dubbo.common.constants.CommonConstants.METADATA_SERVICE_PROTOCOL_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.READINESS_PROBE_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.REGISTRY_LOCAL_FILE_CACHE_ENABLED;
 import static org.apache.dubbo.common.constants.CommonConstants.SHUTDOWN_WAIT_KEY;
 import static org.apache.dubbo.common.constants.CommonConstants.STARTUP_PROBE;
+import static org.apache.dubbo.common.constants.LoggerCodeConstants.COMMON_UNEXPECTED_EXCEPTION;
 import static org.apache.dubbo.common.constants.QosConstants.ACCEPT_FOREIGN_IP;
+import static org.apache.dubbo.common.constants.QosConstants.ACCEPT_FOREIGN_IP_COMPATIBLE;
+import static org.apache.dubbo.common.constants.QosConstants.ACCEPT_FOREIGN_IP_WHITELIST;
+import static org.apache.dubbo.common.constants.QosConstants.ACCEPT_FOREIGN_IP_WHITELIST_COMPATIBLE;
+import static org.apache.dubbo.common.constants.QosConstants.ANONYMOUS_ACCESS_PERMISSION_LEVEL;
+import static org.apache.dubbo.common.constants.QosConstants.ANONYMOUS_ACCESS_PERMISSION_LEVEL_COMPATIBLE;
 import static org.apache.dubbo.common.constants.QosConstants.QOS_ENABLE;
+import static org.apache.dubbo.common.constants.QosConstants.QOS_ENABLE_COMPATIBLE;
 import static org.apache.dubbo.common.constants.QosConstants.QOS_HOST;
+import static org.apache.dubbo.common.constants.QosConstants.QOS_HOST_COMPATIBLE;
 import static org.apache.dubbo.common.constants.QosConstants.QOS_PORT;
-import static org.apache.dubbo.common.constants.RegistryConstants.REGISTRY_PUBLISH_INSTANCE_KEY;
-import static org.apache.dubbo.common.constants.RegistryConstants.REGISTRY_PUBLISH_INTERFACE_KEY;
+import static org.apache.dubbo.common.constants.QosConstants.QOS_PORT_COMPATIBLE;
+import static org.apache.dubbo.common.constants.RegistryConstants.ENABLE_EMPTY_PROTECTION_KEY;
+import static org.apache.dubbo.common.constants.RegistryConstants.REGISTER_MODE_KEY;
 import static org.apache.dubbo.config.Constants.DEVELOPMENT_ENVIRONMENT;
 import static org.apache.dubbo.config.Constants.PRODUCTION_ENVIRONMENT;
 import static org.apache.dubbo.config.Constants.TEST_ENVIRONMENT;
-
 
 /**
  * The application info
@@ -62,7 +75,7 @@ import static org.apache.dubbo.config.Constants.TEST_ENVIRONMENT;
  * @export
  */
 public class ApplicationConfig extends AbstractConfig {
-    private static final Logger LOGGER = LoggerFactory.getLogger(ApplicationConfig.class);
+    private static final ErrorTypeAwareLogger LOGGER = LoggerFactory.getErrorTypeAwareLogger(ApplicationConfig.class);
 
     private static final long serialVersionUID = 5508512956753757169L;
 
@@ -123,6 +136,11 @@ public class ApplicationConfig extends AbstractConfig {
     private String dumpDirectory;
 
     /**
+     * Whether to enable saving thread dump or not
+     */
+    private Boolean dumpEnable;
+
+    /**
      * Whether to enable qos or not
      */
     private Boolean qosEnable;
@@ -143,6 +161,16 @@ public class ApplicationConfig extends AbstractConfig {
     private Boolean qosAcceptForeignIp;
 
     /**
+     * When we disable accept foreign ip, support specify foreign ip in the whitelist
+     */
+    private String qosAcceptForeignIpWhitelist;
+
+    /**
+     * the anonymous(any foreign ip) access permission level, default is NONE, can not access any cmd
+     */
+    private String qosAnonymousAccessPermissionLevel;
+
+    /**
      * Customized parameters
      */
     private Map<String, String> parameters;
@@ -159,15 +187,14 @@ public class ApplicationConfig extends AbstractConfig {
      */
     private String metadataType;
 
+    /**
+     * Used to control whether register instance to registry or not. Set to 'false' only when instance is pure consumer.
+     */
     private Boolean registerConsumer;
 
     private String repository;
 
     private Boolean enableFileCache;
-
-    private Boolean publishInterface;
-
-    private Boolean publishInstance;
 
     /**
      * The preferred protocol(name) of this application
@@ -176,9 +203,19 @@ public class ApplicationConfig extends AbstractConfig {
     private String protocol;
 
     /**
+     * The protocol used for peer-to-peer metadata transmission
+     */
+    private String metadataServiceProtocol;
+
+    /**
      * Metadata Service, used in Service Discovery
      */
     private Integer metadataServicePort;
+
+    /**
+     * The retry interval of service name mapping
+     */
+    private Integer mappingRetryInterval;
 
     /**
      * used to set extensions of probe in qos
@@ -189,10 +226,28 @@ public class ApplicationConfig extends AbstractConfig {
 
     private String startupProbe;
 
+    private String registerMode;
+
+    private Boolean enableEmptyProtection;
+
+    /**
+     * thread pool management: default/isolation
+     */
+    private String executorManagementMode;
+
     public ApplicationConfig() {
     }
 
+    public ApplicationConfig(ApplicationModel applicationModel) {
+        super(applicationModel);
+    }
+
     public ApplicationConfig(String name) {
+        setName(name);
+    }
+
+    public ApplicationConfig(ApplicationModel applicationModel, String name) {
+        super(applicationModel);
         setName(name);
     }
 
@@ -206,9 +261,15 @@ public class ApplicationConfig extends AbstractConfig {
             try {
                 hostname = InetAddress.getLocalHost().getHostName();
             } catch (UnknownHostException e) {
-                LOGGER.warn("Failed to get the hostname of current instance.", e);
+                LOGGER.warn(COMMON_UNEXPECTED_EXCEPTION,"","","Failed to get the hostname of current instance.", e);
                 hostname = "UNKNOWN";
             }
+        }
+        if (executorManagementMode == null) {
+            executorManagementMode = EXECUTOR_MANAGEMENT_MODE_DEFAULT;
+        }
+        if (enableFileCache == null) {
+            enableFileCache = Boolean.TRUE;
         }
     }
 
@@ -219,7 +280,6 @@ public class ApplicationConfig extends AbstractConfig {
 
     public void setName(String name) {
         this.name = name;
-        //this.updateIdIfAbsent(name);
     }
 
     @Parameter(key = APPLICATION_VERSION_KEY)
@@ -260,18 +320,16 @@ public class ApplicationConfig extends AbstractConfig {
     }
 
     public void setEnvironment(String environment) {
-        if (environment != null) {
-            if (!(DEVELOPMENT_ENVIRONMENT.equals(environment)
-                || TEST_ENVIRONMENT.equals(environment)
-                || PRODUCTION_ENVIRONMENT.equals(environment))) {
+        if (environment != null && !(DEVELOPMENT_ENVIRONMENT.equals(environment)
+            || TEST_ENVIRONMENT.equals(environment)
+            || PRODUCTION_ENVIRONMENT.equals(environment))) {
 
-                throw new IllegalStateException(String.format("Unsupported environment: %s, only support %s/%s/%s, default is %s.",
-                    environment,
-                    DEVELOPMENT_ENVIRONMENT,
-                    TEST_ENVIRONMENT,
-                    PRODUCTION_ENVIRONMENT,
-                    PRODUCTION_ENVIRONMENT));
-            }
+            throw new IllegalStateException(String.format("Unsupported environment: %s, only support %s/%s/%s, default is %s.",
+                environment,
+                DEVELOPMENT_ENVIRONMENT,
+                TEST_ENVIRONMENT,
+                PRODUCTION_ENVIRONMENT,
+                PRODUCTION_ENVIRONMENT));
         }
         this.environment = environment;
     }
@@ -331,7 +389,7 @@ public class ApplicationConfig extends AbstractConfig {
 
     public void setLogger(String logger) {
         this.logger = logger;
-        LoggerFactory.setLoggerAdapter(logger);
+        LoggerFactory.setLoggerAdapter(getApplicationModel().getFrameworkModel(), logger);
     }
 
     @Parameter(key = DUMP_DIRECTORY)
@@ -341,6 +399,15 @@ public class ApplicationConfig extends AbstractConfig {
 
     public void setDumpDirectory(String dumpDirectory) {
         this.dumpDirectory = dumpDirectory;
+    }
+
+    @Parameter(key = DUMP_ENABLE)
+    public Boolean getDumpEnable() {
+        return dumpEnable;
+    }
+
+    public void setDumpEnable(Boolean dumpEnable) {
+        this.dumpEnable = dumpEnable;
     }
 
     @Parameter(key = QOS_ENABLE)
@@ -379,12 +446,30 @@ public class ApplicationConfig extends AbstractConfig {
         this.qosAcceptForeignIp = qosAcceptForeignIp;
     }
 
+    @Parameter(key = ACCEPT_FOREIGN_IP_WHITELIST)
+    public String getQosAcceptForeignIpWhitelist() {
+        return qosAcceptForeignIpWhitelist;
+    }
+
+    public void setQosAcceptForeignIpWhitelist(String qosAcceptForeignIpWhitelist) {
+        this.qosAcceptForeignIpWhitelist = qosAcceptForeignIpWhitelist;
+    }
+
+    @Parameter(key = ANONYMOUS_ACCESS_PERMISSION_LEVEL)
+    public String getQosAnonymousAccessPermissionLevel() {
+        return qosAnonymousAccessPermissionLevel;
+    }
+
+    public void setQosAnonymousAccessPermissionLevel(String qosAnonymousAccessPermissionLevel) {
+        this.qosAnonymousAccessPermissionLevel = qosAnonymousAccessPermissionLevel;
+    }
+
     /**
      * The format is the same as the springboot, including: getQosEnableCompatible(), getQosPortCompatible(), getQosAcceptForeignIpCompatible().
      *
      * @return
      */
-    @Parameter(key = "qos-enable", excluded = true, attribute = false)
+    @Parameter(key = QOS_ENABLE_COMPATIBLE, excluded = true, attribute = false)
     public Boolean getQosEnableCompatible() {
         return getQosEnable();
     }
@@ -393,7 +478,7 @@ public class ApplicationConfig extends AbstractConfig {
         setQosEnable(qosEnable);
     }
 
-    @Parameter(key = "qos-host", excluded = true, attribute = false)
+    @Parameter(key = QOS_HOST_COMPATIBLE, excluded = true, attribute = false)
     public String getQosHostCompatible() {
         return getQosHost();
     }
@@ -402,7 +487,7 @@ public class ApplicationConfig extends AbstractConfig {
         this.setQosHost(qosHost);
     }
 
-    @Parameter(key = "qos-port", excluded = true, attribute = false)
+    @Parameter(key = QOS_PORT_COMPATIBLE, excluded = true, attribute = false)
     public Integer getQosPortCompatible() {
         return getQosPort();
     }
@@ -411,13 +496,31 @@ public class ApplicationConfig extends AbstractConfig {
         this.setQosPort(qosPort);
     }
 
-    @Parameter(key = "qos-accept-foreign-ip", excluded = true, attribute = false)
+    @Parameter(key = ACCEPT_FOREIGN_IP_COMPATIBLE, excluded = true, attribute = false)
     public Boolean getQosAcceptForeignIpCompatible() {
         return this.getQosAcceptForeignIp();
     }
 
     public void setQosAcceptForeignIpCompatible(Boolean qosAcceptForeignIp) {
         this.setQosAcceptForeignIp(qosAcceptForeignIp);
+    }
+
+    @Parameter(key = ACCEPT_FOREIGN_IP_WHITELIST_COMPATIBLE, excluded = true, attribute = false)
+    public String getQosAcceptForeignIpWhitelistCompatible() {
+        return this.getQosAcceptForeignIpWhitelist();
+    }
+
+    public void setQosAcceptForeignIpWhitelistCompatible(String qosAcceptForeignIpWhitelist) {
+        this.setQosAcceptForeignIpWhitelist(qosAcceptForeignIpWhitelist);
+    }
+
+    @Parameter(key = ANONYMOUS_ACCESS_PERMISSION_LEVEL_COMPATIBLE, excluded = true, attribute = false)
+    public String getQosAnonymousAccessPermissionLevelCompatible() {
+        return this.getQosAnonymousAccessPermissionLevel();
+    }
+
+    public void setQosAnonymousAccessPermissionLevelCompatible(String qosAnonymousAccessPermissionLevel) {
+        this.setQosAnonymousAccessPermissionLevel(qosAnonymousAccessPermissionLevel);
     }
 
     public Map<String, String> getParameters() {
@@ -482,22 +585,22 @@ public class ApplicationConfig extends AbstractConfig {
         this.enableFileCache = enableFileCache;
     }
 
-    @Parameter(key = REGISTRY_PUBLISH_INTERFACE_KEY)
-    public Boolean getPublishInterface() {
-        return publishInterface;
+    @Parameter(key = REGISTER_MODE_KEY)
+    public String getRegisterMode() {
+        return registerMode;
     }
 
-    public void setPublishInterface(Boolean publishInterface) {
-        this.publishInterface = publishInterface;
+    public void setRegisterMode(String registerMode) {
+        this.registerMode = registerMode;
     }
 
-    @Parameter(key = REGISTRY_PUBLISH_INSTANCE_KEY)
-    public Boolean getPublishInstance() {
-        return publishInstance;
+    @Parameter(key = ENABLE_EMPTY_PROTECTION_KEY)
+    public Boolean getEnableEmptyProtection() {
+        return enableEmptyProtection;
     }
 
-    public void setPublishInstance(Boolean publishInstance) {
-        this.publishInstance = publishInstance;
+    public void setEnableEmptyProtection(Boolean enableEmptyProtection) {
+        this.enableEmptyProtection = enableEmptyProtection;
     }
 
     @Parameter(excluded = true, key = APPLICATION_PROTOCOL_KEY)
@@ -517,6 +620,24 @@ public class ApplicationConfig extends AbstractConfig {
     public void setMetadataServicePort(Integer metadataServicePort) {
         this.metadataServicePort = metadataServicePort;
     }
+
+    public Integer getMappingRetryInterval() {
+        return mappingRetryInterval;
+    }
+
+    public void setMappingRetryInterval(Integer mappingRetryInterval) {
+        this.mappingRetryInterval = mappingRetryInterval;
+    }
+
+    @Parameter(key = METADATA_SERVICE_PROTOCOL_KEY)
+    public String getMetadataServiceProtocol() {
+        return metadataServiceProtocol;
+    }
+
+    public void setMetadataServiceProtocol(String metadataServiceProtocol) {
+        this.metadataServiceProtocol = metadataServiceProtocol;
+    }
+
 
     @Parameter(key = LIVENESS_PROBE_KEY)
     public String getLivenessProbe() {
@@ -543,6 +664,15 @@ public class ApplicationConfig extends AbstractConfig {
 
     public void setStartupProbe(String startupProbe) {
         this.startupProbe = startupProbe;
+    }
+
+    public void setExecutorManagementMode(String executorManagementMode) {
+        this.executorManagementMode = executorManagementMode;
+    }
+
+    @Parameter(key = EXECUTOR_MANAGEMENT_MODE)
+    public String getExecutorManagementMode() {
+        return executorManagementMode;
     }
 
     @Override

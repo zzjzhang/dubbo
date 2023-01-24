@@ -22,8 +22,7 @@ import org.apache.dubbo.config.spring.ReferenceBean;
 import org.apache.dubbo.config.spring.api.HelloService;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
 import org.apache.dubbo.config.spring.context.annotation.provider.HelloServiceImpl;
-import org.apache.dubbo.config.spring.registrycenter.ZookeeperSingleRegistryCenter;
-import org.apache.dubbo.config.spring.registrycenter.RegistryCenter;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,21 +53,16 @@ import java.util.Map;
 @Configuration
 //@ComponentScan
 @EnableDubbo
-public class JavaConfigAnnotationReferenceBeanConditionalTest {
-
-    private static RegistryCenter singleRegistryCenter;
+class JavaConfigAnnotationReferenceBeanConditionalTest {
 
     @BeforeAll
     public static void beforeAll(){
-        singleRegistryCenter = new ZookeeperSingleRegistryCenter();
-        singleRegistryCenter.startup();
         DubboBootstrap.reset();
     }
 
     @AfterAll
     public static void afterAll(){
         DubboBootstrap.reset();
-        singleRegistryCenter.shutdown();
     }
 
     @Autowired
@@ -78,7 +72,7 @@ public class JavaConfigAnnotationReferenceBeanConditionalTest {
     private ApplicationContext applicationContext;
 
     @Test
-    public void testConsumer() {
+    void testConsumer() {
 
         Map<String, HelloService> helloServiceMap = applicationContext.getBeansOfType(HelloService.class);
         Assertions.assertEquals(1, helloServiceMap.size());

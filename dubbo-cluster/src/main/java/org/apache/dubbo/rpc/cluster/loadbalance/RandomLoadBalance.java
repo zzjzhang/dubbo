@@ -20,12 +20,12 @@ import org.apache.dubbo.common.URL;
 import org.apache.dubbo.common.utils.StringUtils;
 import org.apache.dubbo.rpc.Invocation;
 import org.apache.dubbo.rpc.Invoker;
+import org.apache.dubbo.rpc.cluster.ClusterInvoker;
 
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 import static org.apache.dubbo.common.constants.CommonConstants.TIMESTAMP_KEY;
-import static org.apache.dubbo.common.constants.RegistryConstants.REGISTRY_KEY;
 import static org.apache.dubbo.common.constants.RegistryConstants.REGISTRY_SERVICE_REFERENCE_PATH;
 import static org.apache.dubbo.rpc.cluster.Constants.WEIGHT_KEY;
 
@@ -43,8 +43,9 @@ public class RandomLoadBalance extends AbstractLoadBalance {
 
     /**
      * Select one invoker between a list using a random criteria
-     * @param invokers List of possible invokers
-     * @param url URL
+     *
+     * @param invokers   List of possible invokers
+     * @param url        URL
      * @param invocation Invocation
      * @param <T>
      * @return The selected invoker
@@ -54,7 +55,7 @@ public class RandomLoadBalance extends AbstractLoadBalance {
         // Number of invokers
         int length = invokers.size();
 
-        if (!needWeightLoadBalance(invokers,invocation)){
+        if (!needWeightLoadBalance(invokers, invocation)) {
             return invokers.get(ThreadLocalRandom.current().nextInt(length));
         }
 
@@ -89,28 +90,24 @@ public class RandomLoadBalance extends AbstractLoadBalance {
     }
 
     private <T> boolean needWeightLoadBalance(List<Invoker<T>> invokers, Invocation invocation) {
-
-        Invoker invoker = invokers.get(0);
+        Invoker<T> invoker = invokers.get(0);
         URL invokerUrl = invoker.getUrl();
+        if (invoker instanceof ClusterInvoker) {
+            invokerUrl = ((ClusterInvoker<?>) invoker).getRegistryUrl();
+        }
+
         // Multiple registry scenario, load balance among multiple registries.
         if (REGISTRY_SERVICE_REFERENCE_PATH.equals(invokerUrl.getServiceInterface())) {
-            String weight = invokerUrl.getParameter(REGISTRY_KEY + "." + WEIGHT_KEY);
-            if (StringUtils.isNotEmpty(weight)) {
-                return true;
-            }
+            String weight = invokerUrl.getParameter(WEIGHT_KEY);
+            return StringUtils.isNotEmpty(weight);
         } else {
             String weight = invokerUrl.getMethodParameter(invocation.getMethodName(), WEIGHT_KEY);
             if (StringUtils.isNotEmpty(weight)) {
                 return true;
-            }else {
+            } else {
                 String timeStamp = invoker.getUrl().getParameter(TIMESTAMP_KEY);
-                if (StringUtils.isNotEmpty(timeStamp)) {
-                    return true;
-                }
+                return StringUtils.isNotEmpty(timeStamp);
             }
         }
-        return false;
     }
-
-
 }

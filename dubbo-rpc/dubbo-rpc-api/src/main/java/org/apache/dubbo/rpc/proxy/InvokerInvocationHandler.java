@@ -22,11 +22,9 @@ import org.apache.dubbo.common.logger.LoggerFactory;
 import org.apache.dubbo.rpc.Constants;
 import org.apache.dubbo.rpc.Invoker;
 import org.apache.dubbo.rpc.RpcInvocation;
-import org.apache.dubbo.rpc.RpcServiceContext;
 import org.apache.dubbo.rpc.model.ConsumerModel;
 import org.apache.dubbo.rpc.model.ServiceModel;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 
@@ -35,27 +33,18 @@ import java.lang.reflect.Method;
  */
 public class InvokerInvocationHandler implements InvocationHandler {
     private static final Logger logger = LoggerFactory.getLogger(InvokerInvocationHandler.class);
+
     private final Invoker<?> invoker;
-    private ServiceModel serviceModel;
-    private URL url;
-    private String protocolServiceKey;
 
-    public static Field stackTraceField;
+    private final ServiceModel serviceModel;
 
-    static {
-        try {
-            stackTraceField = Throwable.class.getDeclaredField("stackTrace");
-            stackTraceField.setAccessible(true);
-        } catch (NoSuchFieldException e) {
-            // ignore
-        }
-    }
+    private final String protocolServiceKey;
 
     public InvokerInvocationHandler(Invoker<?> handler) {
         this.invoker = handler;
-        this.url = invoker.getUrl();
-        this.protocolServiceKey = this.url.getProtocolServiceKey();
-        this.serviceModel = this.url.getServiceModel();
+        URL url = invoker.getUrl();
+        this.protocolServiceKey = url.getProtocolServiceKey();
+        this.serviceModel = url.getServiceModel();
     }
 
     @Override
@@ -77,18 +66,12 @@ public class InvokerInvocationHandler implements InvocationHandler {
         } else if (parameterTypes.length == 1 && "equals".equals(methodName)) {
             return invoker.equals(args[0]);
         }
-        RpcInvocation rpcInvocation = new RpcInvocation(serviceModel, method, invoker.getInterface().getName(), protocolServiceKey, args);
-        String serviceKey = url.getServiceKey();
-        rpcInvocation.setTargetServiceUniqueName(serviceKey);
-
-        // invoker.getUrl() returns consumer url.
-        RpcServiceContext.setRpcContext(url);
+        RpcInvocation rpcInvocation = new RpcInvocation(serviceModel, method.getName(), invoker.getInterface().getName(), protocolServiceKey, method.getParameterTypes(), args);
 
         if (serviceModel instanceof ConsumerModel) {
             rpcInvocation.put(Constants.CONSUMER_MODEL, serviceModel);
             rpcInvocation.put(Constants.METHOD_MODEL, ((ConsumerModel) serviceModel).getMethodModel(method));
         }
-
-        return invoker.invoke(rpcInvocation).recreate();
+        return InvocationUtil.invoke(invoker, rpcInvocation);
     }
 }

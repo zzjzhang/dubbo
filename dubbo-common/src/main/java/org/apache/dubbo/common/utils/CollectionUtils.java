@@ -16,6 +16,7 @@
  */
 package org.apache.dubbo.common.utils;
 
+import java.lang.reflect.Field;
 import java.util.AbstractSet;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -26,6 +27,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import static java.util.Collections.emptySet;
 import static java.util.Collections.unmodifiableSet;
@@ -34,7 +37,6 @@ import static java.util.Collections.unmodifiableSet;
  * Miscellaneous collection utility methods.
  * Mainly for internal use within the framework.
  *
- * @author william.liangf
  * @since 2.0.7
  */
 public class CollectionUtils {
@@ -76,6 +78,27 @@ public class CollectionUtils {
             Collections.sort(list, SIMPLE_NAME_COMPARATOR);
         }
         return list;
+    }
+
+    /**
+     * Flip the specified {@link Map}
+     *
+     * @param map The specified {@link Map},Its value must be unique
+     * @param <K> The key type of specified {@link Map}
+     * @param <V> The value type of specified {@link Map}
+     * @return {@link Map}
+     */
+    public static <K, V> Map<V, K> flip(Map<K, V> map) {
+        if (isEmptyMap(map)) {
+            return (Map<V, K>) map;
+        }
+        Set<V> set = map.values().stream().collect(Collectors.toSet());
+        if (set.size() != map.size()) {
+            throw new IllegalArgumentException("The map value must be unique.");
+        }
+        return map.entrySet()
+                .stream()
+                .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
     }
 
     public static Map<String, Map<String, String>> splitAll(Map<String, List<String>> list, String separator) {
@@ -211,6 +234,22 @@ public class CollectionUtils {
         int len = pairs.length / 2;
         for (int i = 0; i < len; i++) {
             ret.put((K) pairs[2 * i], (V) pairs[2 * i + 1]);
+        }
+        return ret;
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <K, V> Map<K, V> objToMap(Object object) throws IllegalAccessException {
+        Map<K, V> ret = new HashMap<>();
+        if (object != null) {
+            Field[] fields = object.getClass().getDeclaredFields();
+            for (Field field : fields) {
+                field.setAccessible(true);
+                Object value = field.get(object);
+                if (value != null) {
+                    ret.put((K)field.getName(), (V)value);
+                }
+            }
         }
         return ret;
     }
@@ -371,6 +410,16 @@ public class CollectionUtils {
         } else {
             return values.iterator().next();
         }
+    }
+
+    public static <T> Set<T> toTreeSet(Set<T> set) {
+        if (isEmpty(set)) {
+            return set;
+        }
+        if (!(set instanceof TreeSet)) {
+            set = new TreeSet<>(set);
+        }
+        return set;
     }
 
 }

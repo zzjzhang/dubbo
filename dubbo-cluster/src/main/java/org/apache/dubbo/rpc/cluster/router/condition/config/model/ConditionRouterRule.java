@@ -22,9 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-/**
- *
- */
+import static org.apache.dubbo.rpc.cluster.Constants.CONDITIONS_KEY;
+
 public class ConditionRouterRule extends AbstractRouterRule {
     private List<String> conditions;
 
@@ -33,7 +32,7 @@ public class ConditionRouterRule extends AbstractRouterRule {
         ConditionRouterRule conditionRouterRule = new ConditionRouterRule();
         conditionRouterRule.parseFromMap0(map);
 
-        Object conditions = map.get("conditions");
+        Object conditions = map.get(CONDITIONS_KEY);
         if (conditions != null && List.class.isAssignableFrom(conditions.getClass())) {
             conditionRouterRule.setConditions(((List<Object>) conditions).stream()
                     .map(String::valueOf).collect(Collectors.toList()));

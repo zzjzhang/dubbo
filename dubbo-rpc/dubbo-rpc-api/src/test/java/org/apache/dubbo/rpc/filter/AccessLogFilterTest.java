@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Map;
-import java.util.Set;
+import java.util.Queue;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,13 +39,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * AccessLogFilterTest.java
  */
-public class AccessLogFilterTest {
+class AccessLogFilterTest {
 
     Filter accessLogFilter = new AccessLogFilter();
 
     // Test filter won't throw an exception
     @Test
-    public void testInvokeException() {
+    void testInvokeException() {
         Invoker<AccessLogFilterTest> invoker = new MyInvoker<AccessLogFilterTest>(null);
         Invocation invocation = new MockInvocation();
         LogUtil.start();
@@ -63,13 +63,13 @@ public class AccessLogFilterTest {
         Invoker<AccessLogFilterTest> invoker = new MyInvoker<AccessLogFilterTest>(url);
         Invocation invocation = new MockInvocation();
 
-        Field field = AccessLogFilter.class.getDeclaredField("LOG_ENTRIES");
+        Field field = AccessLogFilter.class.getDeclaredField("logEntries");
         field.setAccessible(true);
-        assertTrue(((Map) field.get(AccessLogFilter.class)).isEmpty());
+        assertTrue(((Map) field.get(accessLogFilter)).isEmpty());
 
         accessLogFilter.invoke(invoker, invocation);
 
-        Map<String, Set<AccessLogData>> logs = (Map<String, Set<AccessLogData>>) field.get(AccessLogFilter.class);
+        Map<String, Queue<AccessLogData>> logs = (Map<String, Queue<AccessLogData>>) field.get(accessLogFilter);
         assertFalse(logs.isEmpty());
         assertFalse(logs.get("true").isEmpty());
         AccessLogData log = logs.get("true").iterator().next();
@@ -77,7 +77,7 @@ public class AccessLogFilterTest {
     }
 
     @Test
-    public void testCustom() {
+    void testCustom() {
         URL url = URL.valueOf("test://test:11/test?accesslog=custom-access.log");
         Invoker<AccessLogFilterTest> invoker = new MyInvoker<AccessLogFilterTest>(url);
         Invocation invocation = new MockInvocation();

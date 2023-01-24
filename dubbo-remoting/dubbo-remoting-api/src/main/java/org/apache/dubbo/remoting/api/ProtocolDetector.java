@@ -17,17 +17,16 @@
 package org.apache.dubbo.remoting.api;
 
 
-import io.netty.buffer.ByteBuf;
-import io.netty.channel.ChannelHandlerContext;
+import org.apache.dubbo.remoting.buffer.ChannelBuffer;
+
 
 /**
  * Determine incoming bytes belong to the specific protocol.
  *
- * @author guohaoice@gmail.com
  */
 public interface ProtocolDetector {
 
-    Result detect(final ChannelHandlerContext ctx, final ByteBuf in);
+    Result detect(ChannelBuffer in);
 
     enum Result {
         RECOGNIZED, UNRECOGNIZED, NEED_MORE_DATA

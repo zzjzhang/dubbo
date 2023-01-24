@@ -16,14 +16,10 @@
  */
 package org.apache.dubbo.config.spring.propertyconfigurer.consumer3;
 
-import org.apache.dubbo.common.URL;
 import org.apache.dubbo.config.bootstrap.DubboBootstrap;
 import org.apache.dubbo.config.spring.api.HelloService;
 import org.apache.dubbo.config.spring.context.annotation.EnableDubbo;
 import org.apache.dubbo.config.spring.propertyconfigurer.consumer.DemoBeanFactoryPostProcessor;
-import org.apache.dubbo.config.spring.registrycenter.RegistryCenter;
-import org.apache.dubbo.config.spring.registrycenter.ZookeeperSingleRegistryCenter;
-import org.apache.dubbo.rpc.model.ApplicationModel;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -40,27 +36,22 @@ import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
 import org.springframework.core.io.ClassPathResource;
 
 import java.io.IOException;
-import java.util.Set;
-import java.util.concurrent.ConcurrentMap;
+import java.net.InetSocketAddress;
 
-public class PropertySourcesInJavaConfigTest {
+class PropertySourcesInJavaConfigTest {
 
     private static final String SCAN_PACKAGE_NAME = "org.apache.dubbo.config.spring.propertyconfigurer.consumer3.notexist";
     private static final String PACKAGE_PATH = "/org/apache/dubbo/config/spring/propertyconfigurer/consumer3";
     private static final String PROVIDER_CONFIG_PATH = "org/apache/dubbo/config/spring/propertyconfigurer/provider/dubbo-provider.xml";
-    private RegistryCenter singleRegistryCenter;
 
     @BeforeEach
     public void setUp() throws Exception {
-        singleRegistryCenter = new ZookeeperSingleRegistryCenter();
-        singleRegistryCenter.startup();
         DubboBootstrap.reset();
     }
 
     @AfterEach
     public void tearDown() throws IOException {
         DubboBootstrap.reset();
-        singleRegistryCenter.shutdown();
     }
 
     @BeforeEach
@@ -69,21 +60,11 @@ public class PropertySourcesInJavaConfigTest {
     }
 
     @Test
-    public void testImportPropertySource() {
+    void testImportPropertySource() {
 
         ClassPathXmlApplicationContext providerContext = new ClassPathXmlApplicationContext(PROVIDER_CONFIG_PATH);
         try {
             providerContext.start();
-
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-            }
-
-            ConcurrentMap<String, Set<URL>> tmp = ApplicationModel.defaultModel().getApplicationServiceRepository().getProviderUrlsWithoutGroup();
-            // reset ConfigManager of provider context
-            DubboBootstrap.reset(false);
-            ApplicationModel.defaultModel().getApplicationServiceRepository().setProviderUrlsWithoutGroup(tmp);
 
             // Resolve placeholder by import property sources
             AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(ConsumerConfiguration.class, ImportPropertyConfiguration.class);
@@ -96,7 +77,7 @@ public class PropertySourcesInJavaConfigTest {
                 HelloService service = (HelloService) context.getBean("demoService");
                 String result = service.sayHello("world");
                 System.out.println("result: " + result);
-                Assertions.assertEquals("Hello world, response from provider: 127.0.0.1:0", result);
+                Assertions.assertEquals("Hello world, response from provider: " + InetSocketAddress.createUnresolved("127.0.0.1", 0), result);
             } finally {
                 context.close();
             }
@@ -107,21 +88,11 @@ public class PropertySourcesInJavaConfigTest {
     }
 
     @Test
-    public void testCustomPropertySourceBean() {
+    void testCustomPropertySourceBean() {
 
         ClassPathXmlApplicationContext providerContext = new ClassPathXmlApplicationContext(PROVIDER_CONFIG_PATH);
         try {
             providerContext.start();
-
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-            }
-
-            ConcurrentMap<String, Set<URL>> tmp = ApplicationModel.defaultModel().getApplicationServiceRepository().getProviderUrlsWithoutGroup();
-            // reset ConfigManager of provider context
-            DubboBootstrap.reset(false);
-            ApplicationModel.defaultModel().getApplicationServiceRepository().setProviderUrlsWithoutGroup(tmp);
 
             // Resolve placeholder by custom PropertySourcesPlaceholderConfigurer bean
             AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(ConsumerConfiguration.class, PropertyBeanConfiguration.class);
@@ -134,7 +105,7 @@ public class PropertySourcesInJavaConfigTest {
                 HelloService service = (HelloService) context.getBean("demoService");
                 String result = service.sayHello("world");
                 System.out.println("result: " + result);
-                Assertions.assertEquals("Hello world, response from provider: 127.0.0.1:0", result);
+                Assertions.assertEquals("Hello world, response from provider: " + InetSocketAddress.createUnresolved("127.0.0.1", 0), result);
             } finally {
                 context.close();
             }

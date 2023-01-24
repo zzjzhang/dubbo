@@ -27,6 +27,8 @@ import org.apache.dubbo.remoting.Channel;
 import org.apache.dubbo.remoting.telnet.TelnetHandler;
 import org.apache.dubbo.remoting.telnet.support.Help;
 import org.apache.dubbo.remoting.telnet.support.TelnetUtils;
+import org.apache.dubbo.rpc.model.ApplicationModel;
+import org.apache.dubbo.rpc.model.ScopeModelUtil;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -34,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.apache.dubbo.common.constants.CommonConstants.COMMA_SPLIT_PATTERN;
+import static org.apache.dubbo.config.Constants.STATUS_KEY;
 
 /**
  * StatusTelnetHandler
@@ -42,12 +45,12 @@ import static org.apache.dubbo.common.constants.CommonConstants.COMMA_SPLIT_PATT
 @Help(parameter = "[-l]", summary = "Show status.", detail = "Show status.")
 public class StatusTelnetHandler implements TelnetHandler {
 
-    private final ExtensionLoader<StatusChecker> extensionLoader = ExtensionLoader.getExtensionLoader(StatusChecker.class);
-
     @Override
     public String telnet(Channel channel, String message) {
+        ApplicationModel applicationModel = ScopeModelUtil.getApplicationModel(channel.getUrl().getScopeModel());
+        ExtensionLoader<StatusChecker> extensionLoader = applicationModel.getExtensionLoader(StatusChecker.class);
         if ("-l".equals(message)) {
-            List<StatusChecker> checkers = extensionLoader.getActivateExtension(channel.getUrl(), "status");
+            List<StatusChecker> checkers = extensionLoader.getActivateExtension(channel.getUrl(), STATUS_KEY);
             String[] header = new String[]{"resource", "status", "message"};
             List<List<String>> table = new ArrayList<List<String>>();
             Map<String, Status> statuses = new HashMap<String, Status>();
